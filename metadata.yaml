@@ -1,0 +1,11 @@
+name: astrbot_plugin_aoe4_searchview
+display_name: AOE4 查询视图
+desc: 帝国时代4 信息查询与搜索插件
+author: RiyoruAstral
+version: 1.0.0
+repo: https://github.com/RiyoruAstral/AstrByAOE4SearchView
+short_desc: 查询帝国时代4 游戏数据、单位、科技等信息
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - console
