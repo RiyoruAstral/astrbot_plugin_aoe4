@@ -1,7 +1,28 @@
+import os
+import json
+
+_I18N_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "i18n")
+
+
 class Translator:
     def __init__(self, lang: str = "zh-CN"):
         self.lang = lang if lang in _TABLE else "zh-CN"
         self._table = _TABLE[self.lang]
+        self._game_data: dict = {}
+
+        file_path = os.path.join(_I18N_DIR, f"{self.lang}.json")
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                self._game_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            fallback_path = os.path.join(_I18N_DIR, "en.json")
+            try:
+                with open(fallback_path, "r", encoding="utf-8") as f:
+                    self._game_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                self._game_data = {}
+
+    # ─── UI text translation (from _TABLE) ───
 
     def t(self, key: str, **kwargs) -> str:
         text = self._table.get(key, key)
@@ -12,16 +33,113 @@ class Translator:
     def get_lang(self) -> str:
         return self.lang
 
+    # ─── Game entity translations (from JSON files) ───
+
+    def _g(self, section: str, key: str, fallback: str | None = None) -> str:
+        if section not in self._game_data:
+            return fallback if fallback is not None else key
+        return self._game_data[section].get(key, fallback if fallback is not None else key)
+
+    def civ(self, code: str) -> str:
+        return self._g("civilizations", code, code)
+
+    def age(self, num: int | str) -> str:
+        return self._g("ages", str(num), str(num))
+
+    def weapon_type(self, t: str) -> str:
+        return self._g("weapon_types", t, t)
+
+    def armor_type(self, t: str) -> str:
+        return self._g("armor_types", t, t)
+
+    def display_class(self, cls: str) -> str:
+        return self._g("display_classes", cls, cls)
+
+    def resource(self, name: str) -> str:
+        return self._g("resources", name, name)
+
+    def leaderboard_mode(self, mode: str) -> str:
+        return self._g("leaderboard_modes", mode, mode)
+
+    def rank_level(self, level: str) -> str:
+        return self._g("rank_levels", level, level)
+
+    def unit(self, name: str) -> str:
+        return self._g("units", name, name)
+
+    def building(self, name: str) -> str:
+        return self._g("buildings", name, name)
+
+    def tech(self, name: str) -> str:
+        return self._g("technologies", name, name)
+
+    def produced_by(self, label: str) -> str:
+        return self._g("produced_by_labels", label, label)
+
+    def counter_class(self, cls: str) -> str:
+        return self._g("counter_class_labels", cls, cls)
+
+    def unit_field(self, key: str) -> str:
+        return self._g("unit_fields", key, key)
+
+    def building_field(self, key: str) -> str:
+        return self._g("buildings_fields", key, key)
+
+    def tech_field(self, key: str) -> str:
+        return self._g("tech_fields", key, key)
+
+    def game_label(self, key: str) -> str:
+        return self._g("game_labels", key, key)
+
+    def score(self, key: str, **kwargs) -> str:
+        text = self._g("score_renderer", key, key)
+        if kwargs:
+            text = text.format(**kwargs)
+        return text
+
+    def score_tag(self, key: str, **kwargs) -> tuple[str, str]:
+        name = self._g("score_renderer", f"tag_{key}", key)
+        desc = self._g("score_renderer", f"tag_{key}_desc", key)
+        if kwargs:
+            name_try = _TABLE.get(self.lang, {}).get(f"tag_{key}", "")
+            desc_try = _TABLE.get(self.lang, {}).get(f"tag_{key}_desc", "")
+            if name_try:
+                name = name_try.format(**kwargs)
+            if desc_try:
+                desc = desc_try.format(**kwargs)
+            desc = desc.format(**kwargs)
+        return name, desc
+
+    # ─── Bulk data access ───
+
+    def all_civs(self) -> dict[str, str]:
+        return self._game_data.get("civilizations", {})
+
+    def all_leaderboard_modes(self) -> dict[str, str]:
+        return self._game_data.get("leaderboard_modes", {})
+
+    def all_rank_levels(self) -> dict[str, str]:
+        return self._game_data.get("rank_levels", {})
+
+    def all_units(self) -> dict[str, str]:
+        return self._game_data.get("units", {})
+
+    def all_buildings(self) -> dict[str, str]:
+        return self._game_data.get("buildings", {})
+
+    def all_technologies(self) -> dict[str, str]:
+        return self._game_data.get("technologies", {})
+
+    def all_display_classes(self) -> dict[str, str]:
+        return self._game_data.get("display_classes", {})
+
 
 _TABLE: dict[str, dict[str, str]] = {
     "zh-CN": {
-        # ─── 插件信息 ───
         "plugin_loaded": "astrbot-plugin-aoe4 已加载",
         "plugin_unloaded": "astrbot-plugin-aoe4 已卸载",
         "help_title": "🎮 AOE4 查询插件 v1.1.0",
         "help_general_hint": "💡 通用标志:  -gid 显示对局ID  -pid 显示Profile ID",
-
-        # ─── 指令说明（帮助） ───
         "help_bind": "/aoe4 bind <游戏ID>      通过名字搜索绑定",
         "help_bindid": "/aoe4 bindid <ID>        通过Profile ID直接绑定",
         "help_unbind": "/aoe4 unbind              解绑账号",
@@ -41,14 +159,11 @@ _TABLE: dict[str, dict[str, str]] = {
         "help_counter": "/aoe4 counter <单位>     查询克制关系",
         "help_patch": "/aoe4 patch             查看最近版本更新",
         "help_game": "/aoe4 game <比赛ID>     通过ID查比赛详情\n                       加 -score 评分图  -gid/-pid 显示ID",
-
         "section_bind": "📌 账号绑定",
         "section_stats": "📊 战绩查询",
         "section_leaderboard": "🏆 天梯与搜索",
         "section_data": "📖 游戏数据",
         "section_patch": "📰 版本信息",
-
-        # ─── 绑定系统 ───
         "not_bind": "你还没有绑定游戏账号，请使用 /aoe4 bind <游戏ID> 绑定",
         "bind_success": "✅ 绑定成功！{country}{name}\nProfile ID: {pid}",
         "unbind_success": "✅ 已成功解绑",
@@ -60,12 +175,8 @@ _TABLE: dict[str, dict[str, str]] = {
         "bind_multiple": "找到多个「{name}」，请使用 Profile ID 精确绑定:",
         "bind_multiple_hint": "使用 /aoe4 bindid <Profile ID> 绑定",
         "bind_data_fail": "绑定的账号: {name} (ID: {pid})\n数据查询失败，请稍后重试",
-
-        # ─── 玩家资料 ───
         "profile_title": "📋 {country}{name}  |  ID: {pid}",
         "profile_no_rank": "暂无排位数据",
-
-        # ─── 对局 ───
         "recent_title": "🎮 {name} 最近 {n} 场对局",
         "recent_empty": "{name} 最近没有对局记录",
         "last_no_game": "未找到上一局对局数据",
@@ -80,11 +191,7 @@ _TABLE: dict[str, dict[str, str]] = {
         "last_eco_mil_tech": "  📊 经济: {eco}  军事: {mil}  科技: {tech}",
         "score_unavailable": "📊 评分数据暂不可用，显示阵容:",
         "recent_score_unavailable": "无法获取详细数据",
-
-        # ─── 评分对比文字版 ───
         "score_comparison": "📊 评分 Comparison",
-
-        # ─── 天梯 ───
         "leaderboard_no_data": "暂无排行榜数据",
         "lb_rank": "排名",
         "lb_name": "玩家",
@@ -92,28 +199,18 @@ _TABLE: dict[str, dict[str, str]] = {
         "lb_games": "场次",
         "lb_winrate": "胜率",
         "lb_streak": "连胜/连败",
-
-        # ─── 搜索 ───
         "search_usage": "用法: /aoe4 search <关键词>",
         "search_no_result": "未找到匹配的玩家",
         "search_result": "找到 {n} 个匹配玩家:",
-
-        # ─── Game / Last -score 回退 ───
         "game_fallback_title": "🎮 比赛 | {kind} | {map} | {dur} | {time}{ids}",
-
-        # ─── 队伍标签 ───
         "team_win": "胜队",
         "team_loss": "败队",
         "team_blue": "蓝队",
         "team_red": "红队",
-
-        # ─── 图片渲染标题 ───
         "render_score_title": "🎮 {kind} | {map} | {dur}",
         "render_score_subtitle": "⏱ {time}",
         "render_analysis_title": "🎙️ 搞怪锐评",
         "render_analysis_subtitle": "{title} | {subtitle}",
-
-        # ─── 搞怪锐评标签 ───
         "tag_farmer": "🌾 种田王",
         "tag_farmer_desc": "种了 {food} 食物，仿佛开了农场",
         "tag_economist": "🏠 经济大师",
@@ -154,81 +251,19 @@ _TABLE: dict[str, dict[str, str]] = {
         "tag_warrior_desc": "军事分 {mil}，眼里只有战争",
         "tag_average": "🤷 平平无奇",
         "tag_average_desc": "数据均衡，稳健型玩家",
-
-        # ─── ID 后缀 ───
         "id_suffix_gid": "GID:{gid}",
         "id_suffix_pid": "PID:{pid}",
         "recent_gids_title": "📋 最近对局 GID:",
-
-        # ─── 文明名称 ───
-        "civ_abbasid": "阿巴斯王朝",
-        "civ_english": "英格兰",
-        "civ_chinese": "中国",
-        "civ_french": "法兰西",
-        "civ_hre": "神圣罗马帝国",
-        "civ_mongols": "蒙古",
-        "civ_rus": "罗斯",
-        "civ_delhi": "德里苏丹国",
-        "civ_ottomans": "奥斯曼",
-        "civ_malians": "马里",
-        "civ_byzantines": "拜占庭",
-        "civ_japanese": "日本",
-        "civ_ayyubids": "阿尤布",
-        "civ_jeanne": "圣女贞德",
-        "civ_dragon": "龙骑士团",
-        "civ_zhuxi": "朱熹遗产",
-
-        # ─── 模式名称 ───
-        "mode_rm_solo": "1v1 排位",
-        "mode_rm_2v2": "2v2 排位",
-        "mode_rm_3v3": "3v3 排位",
-        "mode_rm_4v4": "4v4 排位",
-        "mode_rm_team": "组队排位",
-        "mode_qm_1v1": "1v1 快速",
-        "mode_qm_2v2": "2v2 快速",
-        "mode_qm_3v3": "3v3 快速",
-        "mode_qm_4v4": "4v4 快速",
-
-        # ─── 单位/建筑/科技中文字段 ───
-        "unit_hp": "生命值",
-        "unit_cost": "造价",
-        "unit_damage": "伤害",
-        "unit_armor": "护甲",
-        "unit_speed": "移速",
-        "unit_range": "射程",
-        "unit_rate": "攻击速度",
-        "unit_bonus": "加成伤害",
-        "unit_built_by": "建造于",
-        "unit_trained_at": "训练于",
-        "unit_requires": "需求",
-
-        "building_hp": "生命值",
-        "building_cost": "造价",
-        "building_garrison": "驻军容量",
-        "building_influence": "影响范围",
-        "building_produces": "可生产",
-
-        "tech_effect": "效果",
-        "tech_cost": "造价",
-        "tech_applies_to": "作用于",
-        "tech_researched_at": "研发于",
-        "tech_required_age": "需求时代",
-
-        # ─── 错误消息 ───
         "err_not_found_cmd": "未找到指令 /aoe4 {sub} 的帮助",
         "err_data_query": "数据查询失败",
         "err_network": "网络请求失败，请稍后重试",
         "err_flaresolverr": "FlareSolverr 不可用",
     },
-
     "en": {
-        # ─── Plugin Info ───
         "plugin_loaded": "astrbot-plugin-aoe4 loaded",
         "plugin_unloaded": "astrbot-plugin-aoe4 unloaded",
         "help_title": "🎮 AOE4 Query Plugin v1.1.0",
         "help_general_hint": "💡 Flags:  -gid show game ID  -pid show profile ID",
-
-        # ─── Command Descriptions (Help) ───
         "help_bind": "/aoe4 bind <IGN>          Search & bind by IGN",
         "help_bindid": "/aoe4 bindid <ID>         Bind by profile ID directly",
         "help_unbind": "/aoe4 unbind               Unbind current account",
@@ -248,14 +283,11 @@ _TABLE: dict[str, dict[str, str]] = {
         "help_counter": "/aoe4 counter <unit>     Query counter relationships",
         "help_patch": "/aoe4 patch             View latest patch notes",
         "help_game": "/aoe4 game <gameID>     View game by ID\n                      -score for image  -gid/-pid for IDs",
-
         "section_bind": "📌 Account Binding",
         "section_stats": "📊 Match Stats",
         "section_leaderboard": "🏆 Leaderboard & Search",
         "section_data": "📖 Game Data",
         "section_patch": "📰 Patch Notes",
-
-        # ─── Binding ───
         "not_bind": "You haven't bound an account yet. Use /aoe4 bind <IGN> to bind.",
         "bind_success": "✅ Bound successfully! {country}{name}\nProfile ID: {pid}",
         "unbind_success": "✅ Unbound successfully",
@@ -267,12 +299,8 @@ _TABLE: dict[str, dict[str, str]] = {
         "bind_multiple": "Found multiple results for「{name}」, please bind using Profile ID:",
         "bind_multiple_hint": "Use /aoe4 bindid <Profile ID> to bind",
         "bind_data_fail": "Bound account: {name} (ID: {pid})\nData query failed, please try again later.",
-
-        # ─── Profile ───
         "profile_title": "📋 {country}{name}  |  ID: {pid}",
         "profile_no_rank": "No ranked data available",
-
-        # ─── Matches ───
         "recent_title": "🎮 {name} - Last {n} Games",
         "recent_empty": "{name} has no recent games.",
         "last_no_game": "No last game data found.",
@@ -287,11 +315,7 @@ _TABLE: dict[str, dict[str, str]] = {
         "last_eco_mil_tech": "  📊 Economy: {eco}  Military: {mil}  Tech: {tech}",
         "score_unavailable": "📊 Score data unavailable, showing lineup:",
         "recent_score_unavailable": "Could not retrieve detailed data",
-
-        # ─── Score Comparison Text ───
         "score_comparison": "📊 Score Comparison",
-
-        # ─── Leaderboard ───
         "leaderboard_no_data": "No leaderboard data available.",
         "lb_rank": "Rank",
         "lb_name": "Player",
@@ -299,28 +323,18 @@ _TABLE: dict[str, dict[str, str]] = {
         "lb_games": "Games",
         "lb_winrate": "Win%",
         "lb_streak": "Streak",
-
-        # ─── Search ───
         "search_usage": "Usage: /aoe4 search <keyword>",
         "search_no_result": "No matching players found.",
         "search_result": "Found {n} matching players:",
-
-        # ─── Game / Last -score fallback ───
         "game_fallback_title": "🎮 Game | {kind} | {map} | {dur} | {time}{ids}",
-
-        # ─── Team Labels ───
         "team_win": "Victor",
         "team_loss": "Defeated",
         "team_blue": "Blue",
         "team_red": "Red",
-
-        # ─── Image Render Titles ───
         "render_score_title": "🎮 {kind} | {map} | {dur}",
         "render_score_subtitle": "⏱ {time} ago",
         "render_analysis_title": "🎙️ Hot Takes",
         "render_analysis_subtitle": "{title} | {subtitle}",
-
-        # ─── Tag Names ───
         "tag_farmer": "🌾 Farm King",
         "tag_farmer_desc": "Farmed {food} food, like a living plantation",
         "tag_economist": "🏠 Economy Master",
@@ -361,67 +375,9 @@ _TABLE: dict[str, dict[str, str]] = {
         "tag_warrior_desc": "Military score {mil}, lives for war",
         "tag_average": "🤷 Average Joe",
         "tag_average_desc": "Balanced stats, a steady player",
-
-        # ─── ID Suffix ───
         "id_suffix_gid": "GID:{gid}",
         "id_suffix_pid": "PID:{pid}",
         "recent_gids_title": "📋 Recent Game IDs:",
-
-        # ─── Civilization Names ───
-        "civ_abbasid": "Abbasid Dynasty",
-        "civ_english": "English",
-        "civ_chinese": "Chinese",
-        "civ_french": "French",
-        "civ_hre": "Holy Roman Empire",
-        "civ_mongols": "Mongols",
-        "civ_rus": "Rus",
-        "civ_delhi": "Delhi Sultanate",
-        "civ_ottomans": "Ottomans",
-        "civ_malians": "Malians",
-        "civ_byzantines": "Byzantines",
-        "civ_japanese": "Japanese",
-        "civ_ayyubids": "Ayyubids",
-        "civ_jeanne": "Jeanne d'Arc",
-        "civ_dragon": "Order of the Dragon",
-        "civ_zhuxi": "Zhu Xi's Legacy",
-
-        # ─── Mode Names ───
-        "mode_rm_solo": "1v1 Ranked",
-        "mode_rm_2v2": "2v2 Ranked",
-        "mode_rm_3v3": "3v3 Ranked",
-        "mode_rm_4v4": "4v4 Ranked",
-        "mode_rm_team": "Team Ranked",
-        "mode_qm_1v1": "1v1 Quick",
-        "mode_qm_2v2": "2v2 Quick",
-        "mode_qm_3v3": "3v3 Quick",
-        "mode_qm_4v4": "4v4 Quick",
-
-        # ─── Unit/Building/Tech Field Labels ───
-        "unit_hp": "HP",
-        "unit_cost": "Cost",
-        "unit_damage": "Damage",
-        "unit_armor": "Armor",
-        "unit_speed": "Speed",
-        "unit_range": "Range",
-        "unit_rate": "Attack Speed",
-        "unit_bonus": "Bonus Damage",
-        "unit_built_by": "Built By",
-        "unit_trained_at": "Trained At",
-        "unit_requires": "Requires",
-
-        "building_hp": "HP",
-        "building_cost": "Cost",
-        "building_garrison": "Garrison Capacity",
-        "building_influence": "Influence",
-        "building_produces": "Produces",
-
-        "tech_effect": "Effect",
-        "tech_cost": "Cost",
-        "tech_applies_to": "Applies To",
-        "tech_researched_at": "Researched At",
-        "tech_required_age": "Required Age",
-
-        # ─── Error Messages ───
         "err_not_found_cmd": "Command /aoe4 {sub} help not found.",
         "err_data_query": "Data query failed.",
         "err_network": "Network request failed, please try again later.",

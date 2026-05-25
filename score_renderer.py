@@ -12,6 +12,28 @@ FONT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "aoe4_font_cache")
 FONT_CACHE_PATH = os.path.join(FONT_CACHE_DIR, "notosanssc.woff2")
 _FONT_READY = False
 
+TR = None
+
+
+def set_translator(tr):
+    global TR
+    TR = tr
+
+
+def _s(key: str, **kwargs) -> str:
+    if TR is not None:
+        return TR.score(key, **kwargs)
+    return key
+
+
+def _civ_name(code: str) -> str:
+    if not code or TR is None:
+        return code
+    result = TR.civ(code)
+    if result != code:
+        return result
+    return TR.civ(code.lower())
+
 
 def _fmt(v):
     if v is None:
@@ -101,11 +123,11 @@ def generate_score_html(
 
         if has_team_info:
             is_winner = p.get("result") == "win"
-            team_label = "胜队" if is_winner else "败队"
+            team_label = _s("team_win") if is_winner else _s("team_loss")
             team_badge = "win" if is_winner else "loss"
         else:
             is_winner = i < n // 2
-            team_label = "蓝队" if is_winner else "红队"
+            team_label = _s("team_blue") if is_winner else _s("team_red")
             team_badge = "blue" if is_winner else "red"
         color = _player_color(i, n, is_winner)
 
@@ -114,38 +136,38 @@ def generate_score_html(
         olive_row = ""
         if has_olive:
             olive_row = f"""
-              <tr><td class="lbl">橄榄油</td><td class="val">{_fmt(res.get('oliveoil', 0))}</td></tr>"""
+              <tr><td class="lbl">{_s('olive_oil')}</td><td class="val">{_fmt(res.get('oliveoil', 0))}</td></tr>"""
 
         cards_html += f"""
         <div class="card" style="width:{card_w}">
           <div class="card-header" style="border-left:4px solid {color}">
             <div class="player-name">{_fmt(name)}</div>
-            <div class="player-civ"><span class="badge badge-{team_badge}">{team_label}</span>{' | ' + _fmt(civ) if civ else ''}</div>
+            <div class="player-civ"><span class="badge badge-{team_badge}">{team_label}</span>{' | ' + _fmt(_civ_name(civ)) if civ else ''}</div>
           </div>
           <div class="card-body">
             <div class="total-score" style="color:{color}">{_fmt(scores.get('total', 0))}</div>
-            <div class="score-label">总评</div>
+            <div class="score-label">{_s('total_score')}</div>
             <table class="stats">
-              <tr><td class="cat" colspan="2">{_fa("📊")} 评分</td></tr>
-              <tr><td class="lbl">军事</td><td class="val">{_fmt(scores.get('military', 0))}</td></tr>
-              <tr><td class="lbl">经济</td><td class="val">{_fmt(scores.get('economy', 0))}</td></tr>
-              <tr><td class="lbl">科技</td><td class="val">{_fmt(scores.get('technology', 0))}</td></tr>
-              <tr><td class="lbl">社会</td><td class="val">{_fmt(scores.get('society', 0))}</td></tr>
-              <tr><td class="cat" colspan="2">{_fa("💰")} 资源</td></tr>
-              <tr><td class="lbl">总支出</td><td class="val">{_fmt(res.get('total', 0))}</td></tr>
-              <tr><td class="lbl">食物</td><td class="val">{_fmt(res.get('food', 0))}</td></tr>
-              <tr><td class="lbl">木材</td><td class="val">{_fmt(res.get('wood', 0))}</td></tr>
-              <tr><td class="lbl">黄金</td><td class="val">{_fmt(res.get('gold', 0))}</td></tr>
-              <tr><td class="lbl">石头</td><td class="val">{_fmt(res.get('stone', 0))}</td></tr>{olive_row}
-              <tr><td class="cat" colspan="2">{_fa("⚔️")} 战斗</td></tr>
-              <tr><td class="lbl">击杀</td><td class="val">{_fmt(stats.get('ekills', 0))}</td></tr>
-              <tr><td class="lbl">阵亡</td><td class="val">{_fmt(stats.get('edeaths', 0))}</td></tr>
-              <tr><td class="lbl">K/D</td><td class="val kd">{kd}</td></tr>
-              <tr><td class="lbl">摧毁</td><td class="val">{_fmt(stats.get('structdmg', 0))}</td></tr>
-              <tr><td class="cat" colspan="2">{_fa("🏗")} 运营</td></tr>
-              <tr><td class="lbl">生产</td><td class="val">{_fmt(stats.get('sqprod', 0))}</td></tr>
-              <tr><td class="lbl">建筑</td><td class="val">{_fmt(stats.get('bprod', 0))}</td></tr>
-              <tr><td class="lbl">科技</td><td class="val">{_fmt(stats.get('upg', 0))}</td></tr>
+              <tr><td class="cat" colspan="2">{_fa("📊")} {_s('section_scores')}</td></tr>
+              <tr><td class="lbl">{_s('scores_military')}</td><td class="val">{_fmt(scores.get('military', 0))}</td></tr>
+              <tr><td class="lbl">{_s('scores_economy')}</td><td class="val">{_fmt(scores.get('economy', 0))}</td></tr>
+              <tr><td class="lbl">{_s('scores_technology')}</td><td class="val">{_fmt(scores.get('technology', 0))}</td></tr>
+              <tr><td class="lbl">{_s('scores_society')}</td><td class="val">{_fmt(scores.get('society', 0))}</td></tr>
+              <tr><td class="cat" colspan="2">{_fa("💰")} {_s('section_resources')}</td></tr>
+              <tr><td class="lbl">{_s('total_spent')}</td><td class="val">{_fmt(res.get('total', 0))}</td></tr>
+              <tr><td class="lbl">{_s('resource_food')}</td><td class="val">{_fmt(res.get('food', 0))}</td></tr>
+              <tr><td class="lbl">{_s('resource_wood')}</td><td class="val">{_fmt(res.get('wood', 0))}</td></tr>
+              <tr><td class="lbl">{_s('resource_gold')}</td><td class="val">{_fmt(res.get('gold', 0))}</td></tr>
+              <tr><td class="lbl">{_s('resource_stone')}</td><td class="val">{_fmt(res.get('stone', 0))}</td></tr>{olive_row}
+              <tr><td class="cat" colspan="2">{_fa("⚔️")} {_s('section_combat')}</td></tr>
+              <tr><td class="lbl">{_s('kills')}</td><td class="val">{_fmt(stats.get('ekills', 0))}</td></tr>
+              <tr><td class="lbl">{_s('deaths')}</td><td class="val">{_fmt(stats.get('edeaths', 0))}</td></tr>
+              <tr><td class="lbl">{_s('kd')}</td><td class="val kd">{kd}</td></tr>
+              <tr><td class="lbl">{_s('destroys')}</td><td class="val">{_fmt(stats.get('structdmg', 0))}</td></tr>
+              <tr><td class="cat" colspan="2">{_fa("🏗")} {_s('section_operations')}</td></tr>
+              <tr><td class="lbl">{_s('production')}</td><td class="val">{_fmt(stats.get('sqprod', 0))}</td></tr>
+              <tr><td class="lbl">{_s('buildings')}</td><td class="val">{_fmt(stats.get('bprod', 0))}</td></tr>
+              <tr><td class="lbl">{_s('techs')}</td><td class="val">{_fmt(stats.get('upg', 0))}</td></tr>
               <tr><td class="lbl">APM</td><td class="val">{_fmt(apm)}</td></tr>
             </table>
           </div>
@@ -228,7 +250,7 @@ td.kd {{ color: #f8a; }}
   <p>{_fa(_fmt(subtitle))}</p>
 </div>
 <div class="cards">{cards_html}</div>
-<div class="footer">Powered by astrbot-plugin-aoe4</div>
+<div class="footer">{_s('footer')}</div>
 </body>
 </html>"""
 
@@ -245,7 +267,6 @@ def generate_player_tags(players: list[dict]) -> list[dict]:
 
         tags = []
 
-        total = scores.get("total", 0) or 0
         mil = scores.get("military", 0) or 0
         eco = scores.get("economy", 0) or 0
         tech = scores.get("technology", 0) or 0
@@ -264,57 +285,64 @@ def generate_player_tags(players: list[dict]) -> list[dict]:
         stone = res.get("stone", 0) or 0
         resources = res.get("total", 0) or 0
 
+        tag_defs = []
+
         if food > 30000 and food > wood + gold + stone:
-            tags.append((_fa("🌾") + " 种田王", f"种了 {_fmt(food)} 食物，仿佛开了农场"))
+            tag_defs.append({"key": "farmer", "ctx": {"food": _fmt(food)}})
         elif eco > 2000 and eco > mil + tech + soc:
-            tags.append((_fa("🏠") + " 经济大师", f"经济分 {_fmt(eco)}，闷声发大财"))
+            tag_defs.append({"key": "economist", "ctx": {"eco": _fmt(eco)}})
 
         if kd >= 5 and kills > 50:
-            tags.append((_fa("💀") + " 战神下凡", f"KD {kd:.2f}，杀穿全场"))
+            tag_defs.append({"key": "god", "ctx": {"kd": f"{kd:.2f}"}})
         elif kd >= 2 and kills > 30:
-            tags.append((_fa("⚔️") + " 猛男", f"KD {kd:.2f}，实力碾压"))
+            tag_defs.append({"key": "muscle", "ctx": {"kd": f"{kd:.2f}"}})
         elif kd < 0.5 and deaths > 30:
-            tags.append((_fa("☁️") + " 白给王", f"阵亡 {_fmt(deaths)} 次，峡谷先锋"))
+            tag_defs.append({"key": "feeder", "ctx": {"deaths": _fmt(deaths)}})
         elif deaths > kills * 2 and deaths > 20:
-            tags.append((_fa("🎁") + " 送温暖", f"阵亡 {_fmt(deaths)} / 击杀 {_fmt(kills)}，慈善大使"))
+            tag_defs.append({"key": "gifter", "ctx": {"deaths": _fmt(deaths), "kills": _fmt(kills)}})
 
         if apm and apm < 60:
-            tags.append((_fa("🐢") + " 养生玩家", f"APM {apm:.0f}，慢工出细活"))
+            tag_defs.append({"key": "slow", "ctx": {"apm": apm}})
         elif apm and apm > 250:
-            tags.append((_fa("⚡") + " 手速怪", f"APM {apm:.0f}，单身二十年"))
+            tag_defs.append({"key": "speed", "ctx": {"apm": apm}})
 
         if structdmg > 50:
-            tags.append((_fa("🏗️") + " 拆迁队长", f"摧毁 {_fmt(structdmg)} 建筑"))
+            tag_defs.append({"key": "demolisher", "ctx": {"structdmg": _fmt(structdmg)}})
         elif structdmg == 0 and is_winner and kills > 20:
-            tags.append((_fa("👊") + " 纯武力", "一个建筑没拆也能赢，把对面人全杀光了"))
+            tag_defs.append({"key": "bruteforce", "ctx": {}})
 
         if bprod > 150:
-            tags.append((_fa("🏘️") + " 建房狂魔", f"造了 {_fmt(bprod)} 个建筑"))
+            tag_defs.append({"key": "builder", "ctx": {"bprod": _fmt(bprod)}})
 
         if upg > 45:
-            tags.append((_fa("🔬") + " 科技宅", f"研究了 {_fmt(upg)} 项科技"))
+            tag_defs.append({"key": "techie", "ctx": {"upg": _fmt(upg)}})
         elif upg < 20 and (is_winner and mil > 1000):
-            tags.append((_fa("🪓") + " 莽夫", "科技是什么？干就完了"))
+            tag_defs.append({"key": "brute", "ctx": {}})
 
         if resources > 120000:
-            tags.append((_fa("💰") + " 资源大户", f"总支出 {_fmt(resources)} 的石油大王"))
+            tag_defs.append({"key": "rich", "ctx": {"resources": _fmt(resources)}})
         elif resources < 30000 and is_winner:
-            tags.append((_fa("💎") + " 勤俭持家", f"只花 {_fmt(resources)} 资源就赢了"))
+            tag_defs.append({"key": "frugal", "ctx": {"resources": _fmt(resources)}})
 
         if food > 15000 and wood > 15000 and gold > 15000:
-            tags.append((_fa("⚖️") + " 均衡发展", "食物/木材/黄金都过万的三好村民"))
+            tag_defs.append({"key": "balanced", "ctx": {}})
 
         if soc >= 1200:
-            tags.append((_fa("🏛️") + " 交际花", f"社会分 {_fmt(soc)}，帝国的社交达人"))
+            tag_defs.append({"key": "social", "ctx": {"soc": _fmt(soc)}})
 
         if sqprod > 700:
-            tags.append((_fa("👶") + " 人口贩子", f"生产了 {_fmt(sqprod)} 个单位"))
+            tag_defs.append({"key": "popdealer", "ctx": {"sqprod": _fmt(sqprod)}})
 
         if mil > 3000:
-            tags.append((_fa("🗡️") + " 战争狂人", f"军事分 {_fmt(mil)}，眼里只有战争"))
+            tag_defs.append({"key": "warrior", "ctx": {"mil": _fmt(mil)}})
 
-        if not tags:
-            tags.append((_fa("🤷") + " 平平无奇", "数据均衡，稳健型玩家"))
+        if not tag_defs:
+            tag_defs.append({"key": "average", "ctx": {}})
+
+        tags = []
+        for td in tag_defs:
+            name_str, desc_str = _tag_text(td["key"], td["ctx"]) if TR else _tag_text_fallback(td["key"], td["ctx"])
+            tags.append((name_str, desc_str))
 
         tags_list.append({
             "name": name,
@@ -322,6 +350,39 @@ def generate_player_tags(players: list[dict]) -> list[dict]:
             "is_winner": is_winner,
         })
     return tags_list
+
+
+def _tag_text(tag_key: str, ctx: dict) -> tuple[str, str]:
+    return TR.score_tag(tag_key, **ctx)
+
+
+def _tag_text_fallback(tag_key: str, ctx: dict) -> tuple[str, str]:
+    MAP = {
+        "farmer": ("🌾 种田王", "种了 {food} 食物，仿佛开了农场"),
+        "economist": ("🏠 经济大师", "经济分 {eco}，闷声发大财"),
+        "god": ("💀 战神下凡", "KD {kd}，杀穿全场"),
+        "muscle": ("⚔️ 猛男", "KD {kd}，实力碾压"),
+        "feeder": ("☁️ 白给王", "阵亡 {deaths} 次，峡谷先锋"),
+        "gifter": ("🎁 送温暖", "阵亡 {deaths} / 击杀 {kills}，慈善大使"),
+        "slow": ("🐢 养生玩家", "APM {apm}，慢工出细活"),
+        "speed": ("⚡ 手速怪", "APM {apm}，单身二十年"),
+        "demolisher": ("🏗️ 拆迁队长", "摧毁 {structdmg} 建筑"),
+        "bruteforce": ("👊 纯武力", "一个建筑没拆也能赢，把对面人全杀光了"),
+        "builder": ("🏘️ 建房狂魔", "造了 {bprod} 个建筑"),
+        "techie": ("🔬 科技宅", "研究了 {upg} 项科技"),
+        "brute": ("🪓 莽夫", "科技是什么？干就完了"),
+        "rich": ("💰 资源大户", "总支出 {resources} 的石油大王"),
+        "frugal": ("💎 勤俭持家", "只花 {resources} 资源就赢了"),
+        "balanced": ("⚖️ 均衡发展", "食物/木材/黄金都过万的三好村民"),
+        "social": ("🏛️ 交际花", "社会分 {soc}，帝国的社交达人"),
+        "popdealer": ("👶 人口贩子", "生产了 {sqprod} 个单位"),
+        "warrior": ("🗡️ 战争狂人", "军事分 {mil}，眼里只有战争"),
+        "average": ("🤷 平平无奇", "数据均衡，稳健型玩家"),
+    }
+    name, desc = MAP.get(tag_key, (tag_key, ""))
+    if ctx:
+        desc = desc.format(**ctx)
+    return name, desc
 
 
 def generate_analysis_html(
@@ -339,7 +400,7 @@ def generate_analysis_html(
             for j, (tag, _) in enumerate(p["tags"])
         )
         comments_html = "".join(
-            f'<div class="comment">{comment}</div>'
+            f'<div class="comment">{_fa(_fmt(comment))}</div>'
             for _, comment in p["tags"]
         )
         cards_html += f"""
@@ -394,10 +455,10 @@ body {{
 .card-body {{ padding: 10px 14px 14px; }}
 .tags {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }}
 .tag {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; font-weight: 600; color: #fff; }}
+.tag i {{ margin-right: 4px; }}
 .comments {{ }}
 .comment {{ font-size: 13px; color: #bbb; line-height: 1.6; padding: 2px 0; }}
 .comment::before {{ content: ""; }}
-.tag i {{ margin-right: 4px; }}
 .footer {{
   text-align: center;
   margin-top: 12px;
@@ -408,11 +469,11 @@ body {{
 </head>
 <body>
 <div class="header">
-  <h2>{_fa("🎙️")} 搞怪锐评</h2>
+  <h2>{_fa("🎙️")} {_s('analysis_title')}</h2>
   <p>{_fa(_fmt(title))} | {_fa(_fmt(subtitle))}</p>
 </div>
 {cards_html}
-<div class="footer">Powered by astrbot-plugin-aoe4</div>
+<div class="footer">{_s('footer')}</div>
 </body>
 </html>"""
 

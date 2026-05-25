@@ -5,41 +5,55 @@ from astrbot.api import logger
 DATA_BASE = "https://data.aoe4world.com"
 USER_AGENT = "astrbot-plugin-aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
-
-CIV_CODE_TO_NAME = {
-    "ab": "阿巴斯王朝", "en": "英格兰", "ch": "中国", "fr": "法兰西",
-    "hr": "神圣罗马帝国", "mo": "蒙古", "ru": "罗斯", "de": "德里苏丹国",
-    "ot": "奥斯曼", "ma": "马里", "by": "拜占庭", "jp": "日本",
-    "ay": "阿尤布", "jd": "圣女贞德", "od": "龙骑士团", "zx": "朱熹遗产",
-    "vf": "法国变体", "vh": "神圣罗马帝国变体", "va": "阿巴斯变体",
-    "vr": "罗斯变体", "vc": "中国变体", "vd": "德里变体", "vm": "蒙古变体",
-    "vo": "奥斯曼变体", "vj": "日本变体", "vb": "拜占庭变体",
-}
-
-CIV_NAME_TO_CODE = {v: k for k, v in CIV_CODE_TO_NAME.items()}
-CIV_NAME_TO_CODE.update({
+CIV_NAME_TO_CODE = {
     "abbasid_dynasty": "ab", "english": "en", "chinese": "ch",
     "french": "fr", "holy_roman_empire": "hr", "mongols": "mo",
     "rus": "ru", "delhi_sultanate": "de", "ottomans": "ot",
     "malians": "ma", "byzantines": "by", "japanese": "jp",
     "ayyubids": "ay", "jeanne_darc": "jd", "order_of_the_dragon": "od",
     "zhu_xis_legacy": "zx",
-})
+    "jin_dynasty": "ji",
+    "golden_horde": "gh",
+    "sengoku_daimyo": "sg",
+    "knights_templar": "kt",
+    "house_of_lancaster": "hl",
+    "macedonian_dynasty": "md",
+    "阿巴斯王朝": "ab", "英格兰": "en", "中国": "ch", "法兰西": "fr",
+    "神圣罗马帝国": "hr", "蒙古": "mo", "罗斯": "ru", "德里苏丹国": "de",
+    "奥斯曼": "ot", "马里": "ma", "拜占庭": "by", "日本": "jp",
+    "阿尤布": "ay", "圣女贞德": "jd", "龙骑士团": "od", "朱熹遗产": "zx",
+    "金朝": "ji",
+    "战国大名": "sg",
+    "圣殿骑士团": "kt",
+    "兰开斯特王朝": "hl",
+    "马其顿王朝": "md",
+}
 
-AGE_NAMES = {1: "黑暗时代", 2: "封建时代", 3: "城堡时代", 4: "帝王时代"}
-
-WEAPON_TYPE_LABELS = {"melee": "近战", "ranged": "远程", "siege": "攻城", "fire": "火焰"}
-
-ARMOR_TYPE_LABELS = {"melee": "近战护甲", "ranged": "远程护甲", "fire": "火焰护甲"}
+CIV_CODE_TO_NAME = {
+    "ab": "阿巴斯王朝", "en": "英格兰", "ch": "中国", "fr": "法兰西",
+    "hr": "神圣罗马帝国", "mo": "蒙古", "ru": "罗斯", "de": "德里苏丹国",
+    "ot": "奥斯曼", "ma": "马里", "by": "拜占庭", "jp": "日本",
+    "ay": "阿尤布", "jd": "圣女贞德", "od": "龙骑士团", "zx": "朱熹遗产",
+    "ji": "金朝",
+    "gh": "金朝",
+    "sg": "战国大名",
+    "kt": "圣殿骑士团",
+    "hl": "兰开斯特王朝",
+    "md": "马其顿王朝",
+    "vf": "法国变体", "vh": "神圣罗马帝国变体", "va": "阿巴斯变体",
+    "vr": "罗斯变体", "vc": "中国变体", "vd": "德里变体", "vm": "蒙古变体",
+    "vo": "奥斯曼变体", "vj": "日本变体", "vb": "拜占庭变体",
+}
 
 
 class AoE4DataClient:
-    def __init__(self):
+    def __init__(self, translator=None):
         self._session: aiohttp.ClientSession | None = None
         self._units: list[dict] | None = None
         self._buildings: list[dict] | None = None
         self._technologies: list[dict] | None = None
         self._lock = asyncio.Lock()
+        self.tr = translator
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -51,11 +65,11 @@ class AoE4DataClient:
         try:
             async with session.get(f"{DATA_BASE}{path}", timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status != 200:
-                    logger.warning(f"AoE4 Data 返回 {resp.status}: {path}")
+                    logger.warning(f"AoE4 Data returned {resp.status}: {path}")
                     return None
                 return await resp.json()
         except Exception as e:
-            logger.error(f"AoE4 Data 请求失败 {path}: {e}")
+            logger.error(f"AoE4 Data request failed {path}: {e}")
             return None
 
     async def _ensure_loaded(self):
@@ -64,7 +78,8 @@ class AoE4DataClient:
         async with self._lock:
             if self._units is not None:
                 return
-            logger.info("正在加载 AoE4 游戏数据...")
+            label = self.tr.t("loading_data") if self.tr else "Loading AoE4 game data..."
+            logger.info(label)
             tasks = [
                 self._fetch_json("/units/all.json"),
                 self._fetch_json("/buildings/all.json"),
@@ -74,7 +89,8 @@ class AoE4DataClient:
             self._units = (results[0] or {}).get("data", [])
             self._buildings = (results[1] or {}).get("data", [])
             self._technologies = (results[2] or {}).get("data", [])
-            logger.info(f"AoE4 游戏数据加载完成: {len(self._units)} 单位, {len(self._buildings)} 建筑, {len(self._technologies)} 科技")
+            done = self.tr.t("data_loaded") if self.tr else "Game data loaded"
+            logger.info(f"{done}: {len(self._units)} units, {len(self._buildings)} buildings, {len(self._technologies)} techs")
 
     def _match(self, items: list[dict], query: str) -> list[dict]:
         q = query.lower().replace("-", " ").replace("_", " ")
@@ -110,10 +126,6 @@ class AoE4DataClient:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
-
-    async def _get_all_units(self) -> list[dict]:
-        await self._ensure_loaded()
-        return self._units or []
 
     async def get_counter_info(self, query: str) -> dict | None:
         await self._ensure_loaded()
@@ -159,165 +171,165 @@ class AoE4DataClient:
             "countered_by": countered_by,
         }
 
+    # ─── Localized formatting methods ───
 
-DISPLAY_CLASS_LABELS = {
-    "LightMeleeInfantry": "轻装近战步兵",
-    "HeavyMeleeInfantry": "重装近战步兵",
-    "LightRangedInfantry": "轻装远程步兵",
-    "HeavyRangedInfantry": "重装远程步兵",
-    "Infantry": "步兵",
-    "Cavalry": "骑兵",
-    "Archer": "弓箭手",
-    "Siege": "攻城器",
-    "Building": "建筑",
-    "Ship": "船舰",
-    "Traders": "商人",
-    "Monks": "僧侣",
-    "Priests": "祭司",
-    "Fire": "火焰",
-    "Gunpowder": "火药",
-    "Spearman": "长矛兵",
-    "Horseman": "骑手",
-    "Crossbowman": "弩手",
-}
+    def _t(self, section: str, key: str, fallback: str = "") -> str:
+        if self.tr:
+            return getattr(self.tr, section, lambda k, f: self.tr.t(k, default=f))(key, fallback)
+        return fallback or key
 
+    def _civ_name(self, code: str) -> str:
+        return self.tr.civ(code) if self.tr else code
 
-def _class_label(cls_name: str) -> str:
-    return DISPLAY_CLASS_LABELS.get(cls_name, cls_name)
+    def _age_name(self, age: int | str | None) -> str:
+        return self.tr.age(age) if self.tr else str(age or "?")
 
+    def _weapon_type(self, t: str) -> str:
+        return self.tr.weapon_type(t) if self.tr else t
 
-def format_counter_info(info: dict) -> list[str]:
-    unit = info["unit"]
-    counters = info["counters"]
-    countered_by = info["countered_by"]
-    lines = [f"⚔️ {unit['name']} 克制关系"]
-    if counters:
-        for c in counters:
-            cls_names = "、".join(_class_label(cl) for cl in c["classes"])
-            lines.append(f"  🔼 克制 {cls_names}  (额外 +{c['bonus_damage']} {c['weapon_type']}伤害)")
-    else:
-        lines.append(f"  🔼 无明显克制关系")
-    if countered_by:
-        seen_units = set()
-        for cb in countered_by:
-            if cb["unit"] not in seen_units:
-                seen_units.add(cb["unit"])
-                lines.append(f"  🔽 被 {cb['unit']} 克制")
-    else:
-        lines.append(f"  🔽 无明显被克制关系")
-    desc = unit.get("description", "")
-    if desc:
-        lines.append(f"  💡 {desc.replace(chr(10), ' ')}")
-    return lines
+    def _armor_type(self, t: str) -> str:
+        return self.tr.armor_type(t) if self.tr else t
 
+    def _class_label(self, cls: str) -> str:
+        return self.tr.display_class(cls) if self.tr else cls
 
-def _format_costs(costs: dict) -> str:
-    parts = []
-    for r in ("food", "wood", "gold", "stone"):
-        v = costs.get(r, 0)
-        if v:
-            labels = {"food": "食物", "wood": "木材", "gold": "黄金", "stone": "石料"}
-            parts.append(f"{labels[r]}{v}")
-    time_s = costs.get("time", 0)
-    parts.append(f"时间:{time_s}s")
-    return " ".join(parts)
+    def _resource_label(self, r: str) -> str:
+        return self.tr.resource(r) if self.tr else r
 
+    def _costs_str(self, costs: dict) -> str:
+        parts = []
+        for r in ("food", "wood", "gold", "stone"):
+            v = costs.get(r, 0)
+            if v:
+                parts.append(f"{self._resource_label(r)}{v}")
+        time_s = costs.get("time", 0)
+        if self.tr:
+            parts.append(f"{self.tr.resource('time')}:{time_s}s")
+        else:
+            parts.append(f"Time:{time_s}s")
+        return " ".join(parts)
 
-def _format_armor(armors: list) -> str:
-    if not armors:
-        return "无"
-    return " ".join(f"{ARMOR_TYPE_LABELS.get(a['type'], a['type'])}:{a['value']}" for a in armors)
+    def _armor_str(self, armors: list) -> str:
+        if not armors:
+            return self.tr.game_label("none") if self.tr else "无"
+        return " ".join(f"{self._armor_type(a['type'])}:{a['value']}" for a in armors)
 
+    def _civs_str(self, civ_codes: list[str]) -> str:
+        names = [self._civ_name(c) for c in civ_codes]
+        return ", ".join(names)
 
-def _civs_str(civ_codes: list[str]) -> str:
-    names = [CIV_CODE_TO_NAME.get(c, c) for c in civ_codes]
-    return ", ".join(names)
+    def _display_classes_str(self, classes: list[str]) -> str:
+        if not classes:
+            return self.tr.game_label("none") if self.tr else "无"
+        return ", ".join(self._class_label(c) for c in classes)
 
+    def format_unit(self, unit: dict) -> list[str]:
+        hp = unit.get("hitpoints", "?")
+        lines = [
+            f"⚔️ {unit['name']}",
+            f"  {self._civs_str(unit.get('civs', []))} | {self._age_name(unit.get('age', '?'))}",
+            f"  {self.tr.unit_field('type') if self.tr else '类型'}: {self._display_classes_str(unit.get('displayClasses', []))}",
+            f"  {self.tr.unit_field('hp') if self.tr else '生命值'}: {hp}",
+        ]
+        desc = unit.get("description", "")
+        if desc:
+            lines.append(f"  {self.tr.unit_field('description') if self.tr else '描述'}: {desc.replace(chr(10), ' ')}")
+        costs = unit.get("costs", {})
+        lines.append(f"  {self.tr.unit_field('cost') if self.tr else '造价'}: {self._costs_str(costs)}")
+        movement = unit.get("movement", {})
+        if movement:
+            spd = movement.get("speed", "?")
+            lines.append(f"  {self.tr.unit_field('speed') if self.tr else '移动速度'}: {spd}")
+        weapons = unit.get("weapons", [])
+        if weapons:
+            w = weapons[0]
+            wt = self._weapon_type(w.get("type", ""))
+            dmg = w.get("damage", "?")
+            spd = w.get("speed", "?")
+            rng = w.get("range", {})
+            rng_label = self.tr.unit_field("range") if self.tr else "射程"
+            rng_str = f" {rng_label}:{rng.get('min', 0)}-{rng.get('max', 0)}" if rng.get("max") else ""
+            lines.append(f"  {self.tr.unit_field('weapon') if self.tr else '武器'}: {wt} {self.tr.unit_field('damage') if self.tr else '伤害'}:{dmg} {self.tr.unit_field('attack_speed') if self.tr else '速度'}:{spd}s{rng_str}")
+            if len(weapons) > 1:
+                lines.append(f"  {self.tr.unit_field('secondary_weapon') if self.tr else '副武器'}: {weapons[1].get('name', '?')} {self.tr.unit_field('damage') if self.tr else '伤害'}:{weapons[1].get('damage', '?')}")
+        armor = unit.get("armor", [])
+        lines.append(f"  {self.tr.unit_field('armor') if self.tr else '护甲'}: {self._armor_str(armor)}")
+        produced = unit.get("producedBy", [])
+        if produced:
+            prod_label = self.tr.unit_field("production_building") if self.tr else "生产建筑"
+            lines.append(f"  {prod_label}: {', '.join(produced)}")
+        unique = unit.get("unique", False)
+        if unique:
+            lines.append(f"  ⭐ {self.tr.unit_field('unique_unit') if self.tr else '特色单位'}")
+        return lines
 
-def _display_classes(classes: list[str]) -> str:
-    return ", ".join(classes) if classes else "无"
+    def format_building(self, building: dict) -> list[str]:
+        lines = [
+            f"🏛️ {building['name']}",
+            f"  {self._civs_str(building.get('civs', []))} | {self._age_name(building.get('age', '?'))}",
+            f"  {self.tr.unit_field('type') if self.tr else '类型'}: {self._display_classes_str(building.get('displayClasses', []))}",
+            f"  {self.tr.building_field('hp') if self.tr else '生命值'}: {building.get('hitpoints', '?')}",
+        ]
+        desc = building.get("description", "")
+        if desc:
+            lines.append(f"  {self.tr.unit_field('description') if self.tr else '描述'}: {desc}")
+        costs = building.get("costs", {})
+        lines.append(f"  {self.tr.building_field('cost') if self.tr else '造价'}: {self._costs_str(costs)}")
+        armor = building.get("armor", [])
+        lines.append(f"  {self.tr.building_field('armor') if self.tr else '护甲'}: {self._armor_str(armor)}")
+        garrison = building.get("garrison", {})
+        if garrison:
+            cap = garrison.get("capacity", 0)
+            if cap:
+                lines.append(f"  {self.tr.building_field('garrison_capacity') if self.tr else '驻军容量'}: {cap}")
+        influences = building.get("influences", [])
+        if influences:
+            lines.append(f"  {self.tr.building_field('influence') if self.tr else '影响'}: {influences[0].replace(chr(10), ' ')}")
+        unique = building.get("unique", False)
+        if unique:
+            lines.append(f"  ⭐ {self.tr.building_field('unique_building') if self.tr else '特色建筑'}")
+        return lines
 
+    def format_technology(self, tech: dict) -> list[str]:
+        lines = [
+            f"🔬 {tech['name']}",
+            f"  {self._civs_str(tech.get('civs', []))} | {self._age_name(tech.get('age', '?'))}",
+            f"  {self.tr.tech_field('category') if self.tr else '类别'}: {self._display_classes_str(tech.get('displayClasses', []))}",
+        ]
+        desc = tech.get("description", "")
+        if desc:
+            lines.append(f"  {self.tr.tech_field('effect') if self.tr else '效果'}: {desc}")
+        costs = tech.get("costs", {})
+        lines.append(f"  {self.tr.tech_field('cost') if self.tr else '造价'}: {self._costs_str(costs)}")
+        produced = tech.get("producedBy", [])
+        if produced:
+            prod_label = self.tr.tech_field("researched_at") if self.tr else "研发建筑"
+            lines.append(f"  {prod_label}: {', '.join(produced)}")
+        unique = tech.get("unique", False)
+        if unique:
+            lines.append(f"  ⭐ {self.tr.tech_field('unique_tech') if self.tr else '特色科技'}")
+        return lines
 
-def format_unit(unit: dict) -> list[str]:
-    lines = [
-        f"⚔️ {unit['name']}",
-        f"  {_civs_str(unit.get('civs', []))} | {AGE_NAMES.get(unit.get('age'), '?')}",
-        f"  类型: {_display_classes(unit.get('displayClasses', []))}",
-        f"  生命值: {unit.get('hitpoints', '?')}",
-    ]
-    desc = unit.get("description", "")
-    if desc:
-        lines.append(f"  描述: {desc.replace(chr(10), ' ')}")
-    costs = unit.get("costs", {})
-    lines.append(f"  造价: {_format_costs(costs)}")
-    movement = unit.get("movement", {})
-    if movement:
-        lines.append(f"  移动速度: {movement.get('speed', '?')}")
-    weapons = unit.get("weapons", [])
-    if weapons:
-        w = weapons[0]
-        wt = WEAPON_TYPE_LABELS.get(w.get("type", ""), w.get("type", ""))
-        dmg = w.get("damage", "?")
-        spd = w.get("speed", "?")
-        rng = w.get("range", {})
-        rng_str = f" 射程:{rng.get('min', 0)}-{rng.get('max', 0)}" if rng.get("max") else ""
-        lines.append(f"  武器: {wt} 伤害:{dmg} 速度:{spd}s{rng_str}")
-        if len(weapons) > 1:
-            lines.append(f"  副武器: {weapons[1].get('name', '?')} 伤害:{weapons[1].get('damage', '?')}")
-    armor = unit.get("armor", [])
-    lines.append(f"  护甲: {_format_armor(armor)}")
-    produced = unit.get("producedBy", [])
-    if produced:
-        lines.append(f"  生产建筑: {', '.join(produced)}")
-    unique = unit.get("unique", False)
-    if unique:
-        lines.append(f"  ⭐ 特色单位")
-    return lines
-
-
-def format_building(building: dict) -> list[str]:
-    lines = [
-        f"🏛️ {building['name']}",
-        f"  {_civs_str(building.get('civs', []))} | {AGE_NAMES.get(building.get('age'), '?')}",
-        f"  类型: {_display_classes(building.get('displayClasses', []))}",
-        f"  生命值: {building.get('hitpoints', '?')}",
-    ]
-    desc = building.get("description", "")
-    if desc:
-        lines.append(f"  描述: {desc}")
-    costs = building.get("costs", {})
-    lines.append(f"  造价: {_format_costs(costs)}")
-    armor = building.get("armor", [])
-    lines.append(f"  护甲: {_format_armor(armor)}")
-    garrison = building.get("garrison", {})
-    if garrison:
-        cap = garrison.get("capacity", 0)
-        if cap:
-            lines.append(f"  驻军容量: {cap}")
-    influences = building.get("influences", [])
-    if influences:
-        lines.append(f"  影响: {influences[0].replace(chr(10), ' ')}")
-    unique = building.get("unique", False)
-    if unique:
-        lines.append(f"  ⭐ 特色建筑")
-    return lines
-
-
-def format_technology(tech: dict) -> list[str]:
-    lines = [
-        f"🔬 {tech['name']}",
-        f"  {_civs_str(tech.get('civs', []))} | {AGE_NAMES.get(tech.get('age'), '?')}",
-        f"  类别: {_display_classes(tech.get('displayClasses', []))}",
-    ]
-    desc = tech.get("description", "")
-    if desc:
-        lines.append(f"  效果: {desc}")
-    costs = tech.get("costs", {})
-    lines.append(f"  造价: {_format_costs(costs)}")
-    produced = tech.get("producedBy", [])
-    if produced:
-        lines.append(f"  研发建筑: {', '.join(produced)}")
-    unique = tech.get("unique", False)
-    if unique:
-        lines.append(f"  ⭐ 特色科技")
-    return lines
+    def format_counter_info(self, info: dict) -> list[str]:
+        unit = info["unit"]
+        counters = info["counters"]
+        countered_by = info["countered_by"]
+        lines = [f"⚔️ {unit['name']} {self.tr.game_label('counter_title') if self.tr else '克制关系'}"]
+        if counters:
+            for c in counters:
+                cls_names = ", ".join(self._class_label(cl) for cl in c["classes"])
+                lines.append(f"  🔼 {self.tr.game_label('counters') if self.tr else '克制'} {cls_names} (+{c['bonus_damage']} {c['weapon_type']})")
+        else:
+            lines.append(f"  {self.tr.game_label('no_counters') if self.tr else '无明显克制关系'}")
+        if countered_by:
+            seen_units = set()
+            for cb in countered_by:
+                if cb["unit"] not in seen_units:
+                    seen_units.add(cb["unit"])
+                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb['unit']} {self.tr.game_label('countered') if self.tr else '克制'}")
+        else:
+            lines.append(f"  {self.tr.game_label('no_countered_by') if self.tr else '无明显被克制关系'}")
+        desc = unit.get("description", "")
+        if desc:
+            lines.append(f"  💡 {desc.replace(chr(10), ' ')}")
+        return lines

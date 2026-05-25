@@ -11,15 +11,16 @@ from astrbot.api.star import Context, Star
 from astrbot.api import logger
 from astrbot.api.message_components import At, Image
 from api_client import AoE4WorldClient
-from data_client import AoE4DataClient, CIV_CODE_TO_NAME, CIV_NAME_TO_CODE, format_unit, format_building, format_technology, format_counter_info
+from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, render_html_to_image, close_browser as close_renderer
+    from score_renderer import generate_score_html, generate_analysis_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr
     HAS_RENDERER = True
 except ImportError:
     HAS_RENDERER = False
     logger.warning("score_renderer 不可用，评分将以文字形式展示")
+    def set_renderer_tr(tr): pass
 
 from i18n import Translator
 
@@ -83,6 +84,12 @@ CIV_NAMES = {
     "japanese": "日本", "ayyubids": "阿尤布",
     "jeanne_darc": "圣女贞德", "order_of_the_dragon": "龙骑士团",
     "zhu_xis_legacy": "朱熹遗产", "variant_french": "法国变体",
+    "jin_dynasty": "金朝",
+    "golden_horde": "金朝",
+    "sengoku_daimyo": "战国大名",
+    "knights_templar": "圣殿骑士团",
+    "house_of_lancaster": "兰开斯特王朝",
+    "macedonian_dynasty": "马其顿王朝",
     "variant_hre": "神圣罗马帝国变体", "variant_abbasid": "阿巴斯变体",
     "variant_rus": "罗斯变体", "variant_chinese": "中国变体",
     "variant_delhi": "德里变体", "variant_mongols": "蒙古变体",
@@ -95,6 +102,10 @@ def _format_rank(rank_level: str | None) -> str:
     if not rank_level:
         return "❓ 未定级"
     return RANK_LEVEL_MAP.get(rank_level, f"❓ {rank_level}")
+
+
+def _use_civ_name(civ_id: str) -> str:
+    return CIV_NAMES.get(civ_id, civ_id)
 
 
 def _flag(country: str | None) -> str:
@@ -410,10 +421,34 @@ class AstrBotAOE4Plugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
         self.config = config or {}
-        self.client = AoE4WorldClient()
-        self.data = AoE4DataClient()
         self.tr = Translator(self.config.get("language", "zh-CN"))
+        set_renderer_tr(self.tr)
+        self.client = AoE4WorldClient()
+        self.data = AoE4DataClient(translator=self.tr)
         logger.info(self.tr.t("plugin_loaded"))
+
+    def _civ_name(self, civ_id: str) -> str:
+        if not civ_id:
+            return ""
+        result = self.tr.civ(civ_id)
+        if result != civ_id:
+            return result
+        result2 = self.tr.civ(civ_id.lower())
+        if result2 != civ_id.lower():
+            return result2
+        code = CIV_NAME_TO_CODE.get(civ_id.lower())
+        if code:
+            return self.tr.civ(code)
+        return civ_id
+
+    def _fmt_rank(self, rank_level: str | None) -> str:
+        if not rank_level:
+            return "❓ " + (self.tr.rank_level("unranked") if self.tr else "未定级")
+        level = self.tr.rank_level(rank_level)
+        return level if level != rank_level else f"❓ {rank_level}"
+
+    def _mode_name(self, mode_key: str) -> str:
+        return self.tr.leaderboard_mode(mode_key)
 
     @filter.command("aoe4")
     async def aoe4_router(self, event: AstrMessageEvent):
@@ -636,7 +671,7 @@ class AstrBotAOE4Plugin(Star):
             mode = modes.get(key)
             if not mode:
                 continue
-            label = LEADERBOARD_NAMES.get(key, key)
+            label = self._mode_name(key)
             rating = mode.get("rating")
             rank_level = mode.get("rank_level")
             games = mode.get("games_count", 0)
@@ -644,7 +679,7 @@ class AstrBotAOE4Plugin(Star):
             losses = mode.get("losses_count", 0)
             win_rate = mode.get("win_rate", 0)
             streak = mode.get("streak", 0)
-            rank_display = _format_rank(rank_level)
+            rank_display = self._fmt_rank(rank_level)
             rating_str = f"{rating}" if rating else "N/A"
             streak_str = f"🔥 {streak}" if streak and streak > 0 else (
                 f"💧 {abs(streak)}" if streak and streak < 0 else "")
@@ -715,7 +750,7 @@ class AstrBotAOE4Plugin(Star):
         lines = [f"🎮 {player_name} 最近 {len(games)} 场对局"]
         for i, g in enumerate(games, 1):
             map_name = g.get("map", "未知地图")
-            kind = LEADERBOARD_NAMES.get(g.get("kind", ""), g.get("kind", ""))
+            kind = self._mode_name(g.get("kind", ""))
             dur = _duration_str(g.get("duration", 0))
             time_ago = _elapsed(g.get("started_at", ""))
             game_id = g.get("game_id")
@@ -732,7 +767,7 @@ class AstrBotAOE4Plugin(Star):
                     break
             if my_team_data:
                 result = my_team_data.get("result", "unknown")
-                civ = _civ_name(my_team_data.get("civilization", ""))
+                civ = self._civ_name(my_team_data.get("civilization", ""))
                 rd = my_team_data.get("rating_diff")
                 rd_str = f" ({rd:+.0f})" if rd is not None else ""
                 result_icon = "✅" if result == "win" else "❌"
@@ -751,7 +786,7 @@ class AstrBotAOE4Plugin(Star):
                     for p in team:
                         pd = p["player"]
                         n = f"{_flag(pd.get('country',''))}{pd.get('name','?')}"
-                        civ_label = _civ_name(pd.get("civilization", ""))
+                        civ_label = self._civ_name(pd.get("civilization", ""))
                         entry = f"{n}({civ_label})"
                         if pd["profile_id"] == pid:
                             continue
@@ -799,7 +834,7 @@ class AstrBotAOE4Plugin(Star):
             return
         game_id = game.get("game_id")
         map_name = game.get("map", "未知地图")
-        kind = LEADERBOARD_NAMES.get(game.get("kind", ""), game.get("kind", "排位"))
+        kind = self._mode_name(game.get("kind", ""))
         dur = _duration_str(game.get("duration", 0))
         time_ago = _elapsed(game.get("started_at", ""))
         id_suffix = self._build_id_suffix(show_gid, show_pid, game_id, pid)
@@ -829,7 +864,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result("无法获取本局你的数据")
             return
         result = my_data.get("result", "unknown")
-        civ = _civ_name(my_data.get("civilization", ""))
+        civ = self._civ_name(my_data.get("civilization", ""))
         rd = my_data.get("rating_diff")
         rd_str = f" ({rd:+.0f})" if rd is not None else ""
         result_icon = "✅" if result == "win" else "❌"
@@ -839,7 +874,7 @@ class AstrBotAOE4Plugin(Star):
             for p in team:
                 name = p.get("name", "?")
                 flag = _flag(p.get("country", ""))
-                civ_name = _civ_name(p.get("civilization", ""))
+                civ_name = self._civ_name(p.get("civilization", ""))
                 members.append(f"{flag}{name}({civ_name})")
             teams_strs.append(f"  队伍{ti + 1}: {', '.join(members)}")
         player_stats = None
@@ -989,7 +1024,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(f"未找到比赛 {game_id}")
             return
         map_name = game.get("map", "未知地图")
-        kind = LEADERBOARD_NAMES.get(game.get("kind", ""), game.get("kind", "排位"))
+        kind = self._mode_name(game.get("kind", ""))
         dur = _duration_str(game.get("duration"))
         time_ago = _elapsed(game.get("started_at", ""))
 
@@ -1022,7 +1057,7 @@ class AstrBotAOE4Plugin(Star):
             for p in team:
                 name = p.get("name", "?")
                 flag = _flag(p.get("country", ""))
-                civ = _civ_name(p.get("civilization", ""))
+                civ = self._civ_name(p.get("civilization", ""))
                 result = p.get("result", "")
                 rd = p.get("rating_diff")
                 rd_str = f" {rd:+.0f}" if rd is not None else ""
@@ -1102,7 +1137,7 @@ class AstrBotAOE4Plugin(Star):
             for p in team:
                 name = p.get("name", "?")
                 flag = _flag(p.get("country", ""))
-                civ = _civ_name(p.get("civilization", ""))
+                civ = self._civ_name(p.get("civilization", ""))
                 result = p.get("result", "")
                 rd = p.get("rating_diff")
                 rd_str = f" {rd:+.0f}" if rd is not None else ""
@@ -1135,13 +1170,13 @@ class AstrBotAOE4Plugin(Star):
             logger.warning(f"排行榜数据为空: key={lb_key}, limit={limit}")
             yield event.plain_result("排行榜数据获取失败")
             return
-        label = LEADERBOARD_NAMES.get(lb_key, lb_key)
+        label = self._mode_name(lb_key)
         lines = [f"🏆 {label} 排行榜 TOP {len(players)}"]
         for i, p in enumerate(players, 1):
             name = p.get("name", "?")
             country = _flag(p.get("country", ""))
             rating = p.get("rating", "N/A")
-            rank_level = _format_rank(p.get("rank_level"))
+            rank_level = self._fmt_rank(p.get("rank_level"))
             wr = p.get("win_rate", 0)
             streak = p.get("streak", 0)
             streak_str = f" 🔥{streak}" if streak and streak > 0 else (
@@ -1178,7 +1213,7 @@ class AstrBotAOE4Plugin(Star):
                 for key in ("rm_solo", "rm_team"):
                     lb = lbs.get(key)
                     if lb and lb.get("games_count", 0) > 0:
-                        rl = _format_rank(lb.get("rank_level"))
+                        rl = self._fmt_rank(lb.get("rank_level"))
                         rt = lb.get("rating", "N/A")
                         rank_info = f" | {rl} {rt}分"
                         break
@@ -1192,15 +1227,14 @@ class AstrBotAOE4Plugin(Star):
         query = parts[2].strip().lower() if len(parts) >= 3 else ""
         if not query:
             all_civs = "\n".join(
-                f"  {name}" for _code, name in sorted(CIV_CODE_TO_NAME.items(),
-                key=lambda x: x[1])
+                f"  {self._civ_name(code)}" for code in sorted(self.tr.all_civs().keys())
             )
             yield event.plain_result(f"🏛️ 所有文明:\n{all_civs}\n\n使用 /aoe4 civ <文明名> 查看详情")
             return
         code = CIV_NAME_TO_CODE.get(query)
         if not code:
             code = query
-        display = CIV_CODE_TO_NAME.get(code, query)
+        display = self._civ_name(code)
         data = await self.data.get_civ_data(code)
         if not data:
             yield event.plain_result(f"未找到文明「{query}」的数据")
@@ -1235,7 +1269,7 @@ class AstrBotAOE4Plugin(Star):
             names = "\n".join(f"  {i+1}. {u['name']} ({_civs_str_from_code(u.get('civs',[]))})" for i, u in enumerate(results[:5]))
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
-        lines = format_unit(results[0])
+        lines = self.data.format_unit(results[0])
         yield event.plain_result("\n".join(lines))
 
     async def _handle_building(self, event: AstrMessageEvent):
@@ -1252,7 +1286,7 @@ class AstrBotAOE4Plugin(Star):
             names = "\n".join(f"  {i+1}. {b['name']} ({_civs_str_from_code(b.get('civs',[]))})" for i, b in enumerate(results[:5]))
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
-        lines = format_building(results[0])
+        lines = self.data.format_building(results[0])
         yield event.plain_result("\n".join(lines))
 
     async def _handle_tech(self, event: AstrMessageEvent):
@@ -1269,7 +1303,7 @@ class AstrBotAOE4Plugin(Star):
             names = "\n".join(f"  {i+1}. {t['name']} ({_civs_str_from_code(t.get('civs',[]))})" for i, t in enumerate(results[:5]))
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
-        lines = format_technology(results[0])
+        lines = self.data.format_technology(results[0])
         yield event.plain_result("\n".join(lines))
 
 # ─── 版本更新 ─────────────────────────────────
@@ -1301,7 +1335,7 @@ class AstrBotAOE4Plugin(Star):
         if not info:
             yield event.plain_result(f"未找到单位「{query}」")
             return
-        lines = format_counter_info(info)
+        lines = self.data.format_counter_info(info)
         yield event.plain_result("\n".join(lines))
 
 # ─── 玩家对比 ─────────────────────────────────
@@ -1622,8 +1656,8 @@ class AstrBotAOE4Plugin(Star):
         rl_b = mode_b.get("rank_level")
         if rl_a is not None or rl_b is not None:
             has_data = True
-            rl_a_str = _format_rank(rl_a)
-            rl_b_str = _format_rank(rl_b)
+            rl_a_str = self._fmt_rank(rl_a)
+            rl_b_str = self._fmt_rank(rl_b)
             rank_order = ["conqueror_3","conqueror_2","conqueror_1",
                           "diamond_3","diamond_2","diamond_1",
                           "platinum_3","platinum_2","platinum_1",
