@@ -1,0 +1,29 @@
+{
+    "language": {
+        "type": "string",
+        "description": "Language / 语言",
+        "default": "zh-CN",
+        "hint": "zh-CN for Chinese, en for English",
+        "options": ["zh-CN", "en"],
+        "enum": ["zh-CN", "en"],
+        "labels": ["简体中文", "English"]
+    },
+    "render_enabled": {
+        "type": "bool",
+        "description": "Enable score image rendering / 启用评分图片渲染",
+        "default": true,
+        "hint": "When disabled, falls back to text comparison output"
+    },
+    "render_scale": {
+        "type": "int",
+        "description": "Image render scale / 图片渲染缩放倍数",
+        "default": 2,
+        "hint": "Higher = sharper, suggested 2-3. Requires restart"
+    },
+    "render_width": {
+        "type": "int",
+        "description": "Score card render width / 评分卡渲染宽度",
+        "default": 680,
+        "hint": "Suggested 600-800"
+    }
+}

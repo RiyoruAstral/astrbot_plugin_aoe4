@@ -1,1 +1,5 @@
 astrbot>=4.0.0
+
+# 可选依赖 - 用于图片渲染（评分对比功能需要）
+# pip install playwright
+# playwright install chromium

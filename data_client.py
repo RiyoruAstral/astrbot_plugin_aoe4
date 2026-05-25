@@ -3,7 +3,7 @@ import aiohttp
 from astrbot.api import logger
 
 DATA_BASE = "https://data.aoe4world.com"
-USER_AGENT = "AstrByAOE4SearchView/1.0.0 (QQ bot plugin; contact: @RiyoruAstral)"
+USER_AGENT = "astrbot-plugin-aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
 
 CIV_CODE_TO_NAME = {
@@ -110,6 +110,105 @@ class AoE4DataClient:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
+
+    async def _get_all_units(self) -> list[dict]:
+        await self._ensure_loaded()
+        return self._units or []
+
+    async def get_counter_info(self, query: str) -> dict | None:
+        await self._ensure_loaded()
+        results = self._match(self._units, query)
+        if not results:
+            return None
+        unit = results[0]
+        unit_classes = set(unit.get("displayClasses", []))
+        counters = []
+        for w in unit.get("weapons", []):
+            for mod in w.get("modifiers", []):
+                target = mod.get("target", {})
+                target_classes = target.get("displayClasses", [])
+                bonus = mod.get("damage", 0)
+                if target_classes and bonus > 0:
+                    counters.append({
+                        "classes": target_classes,
+                        "bonus_damage": bonus,
+                        "weapon_type": w.get("type", mod.get("type", "")),
+                    })
+        countered_by = []
+        for other in self._units:
+            if other["id"] == unit["id"]:
+                continue
+            other_classes = set(other.get("displayClasses", []))
+            for w in other.get("weapons", []):
+                for mod in w.get("modifiers", []):
+                    target = mod.get("target", {})
+                    target_classes = target.get("displayClasses", [])
+                    bonus = mod.get("damage", 0)
+                    if target_classes and bonus > 0 and unit_classes & set(target_classes):
+                        countered_by.append({
+                            "unit": other["name"],
+                            "classes": target_classes,
+                            "bonus_damage": bonus,
+                        })
+                        break
+                if countered_by and countered_by[-1].get("unit") == other["name"]:
+                    continue
+        return {
+            "unit": unit,
+            "counters": counters,
+            "countered_by": countered_by,
+        }
+
+
+DISPLAY_CLASS_LABELS = {
+    "LightMeleeInfantry": "轻装近战步兵",
+    "HeavyMeleeInfantry": "重装近战步兵",
+    "LightRangedInfantry": "轻装远程步兵",
+    "HeavyRangedInfantry": "重装远程步兵",
+    "Infantry": "步兵",
+    "Cavalry": "骑兵",
+    "Archer": "弓箭手",
+    "Siege": "攻城器",
+    "Building": "建筑",
+    "Ship": "船舰",
+    "Traders": "商人",
+    "Monks": "僧侣",
+    "Priests": "祭司",
+    "Fire": "火焰",
+    "Gunpowder": "火药",
+    "Spearman": "长矛兵",
+    "Horseman": "骑手",
+    "Crossbowman": "弩手",
+}
+
+
+def _class_label(cls_name: str) -> str:
+    return DISPLAY_CLASS_LABELS.get(cls_name, cls_name)
+
+
+def format_counter_info(info: dict) -> list[str]:
+    unit = info["unit"]
+    counters = info["counters"]
+    countered_by = info["countered_by"]
+    lines = [f"⚔️ {unit['name']} 克制关系"]
+    if counters:
+        for c in counters:
+            cls_names = "、".join(_class_label(cl) for cl in c["classes"])
+            lines.append(f"  🔼 克制 {cls_names}  (额外 +{c['bonus_damage']} {c['weapon_type']}伤害)")
+    else:
+        lines.append(f"  🔼 无明显克制关系")
+    if countered_by:
+        seen_units = set()
+        for cb in countered_by:
+            if cb["unit"] not in seen_units:
+                seen_units.add(cb["unit"])
+                lines.append(f"  🔽 被 {cb['unit']} 克制")
+    else:
+        lines.append(f"  🔽 无明显被克制关系")
+    desc = unit.get("description", "")
+    if desc:
+        lines.append(f"  💡 {desc.replace(chr(10), ' ')}")
+    return lines
 
 
 def _format_costs(costs: dict) -> str:
