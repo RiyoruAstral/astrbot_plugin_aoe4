@@ -190,33 +190,30 @@ async def _install_and_start_flaresolverr() -> bool:
         logger.info(f"正在下载 FlareSolverr {FLARESOLVERR_VERSION} ({arch})...")
         os.makedirs(_FLARESOLVERR_CACHE_DIR, exist_ok=True)
         download_urls = [
-            (
-                f"https://mirrors.tuna.tsinghua.edu.cn/github-release/"
-                f"FlareSolverr/FlareSolverr/{FLARESOLVERR_VERSION}/{archive_name}"
-            ),
-            (
-                f"https://github.com/FlareSolverr/FlareSolverr/releases/download/"
-                f"{FLARESOLVERR_VERSION}/{archive_name}"
-            ),
+            f"https://mirrors.tuna.tsinghua.edu.cn/github-release/FlareSolverr/FlareSolverr/{FLARESOLVERR_VERSION}/{archive_name}",
+            f"https://ghproxy.com/https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
+            f"https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
         ]
         tmp_dir = tempfile.mkdtemp()
         tmp_archive = os.path.join(tmp_dir, archive_name)
         downloaded = False
-        for dl_url in download_urls:
+        for i, dl_url in enumerate(download_urls, 1):
+            mirror_name = "清华镜像", "ghproxy.com 代理", "GitHub 直连"
+            name = mirror_name[i - 1] if i <= len(mirror_name) else f"镜像 {i}"
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(dl_url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
                         if resp.status != 200:
-                            logger.warning(f"下载失败: HTTP {resp.status}")
+                            logger.warning(f"[{name}] 下载失败: HTTP {resp.status}")
                             continue
                         with open(tmp_archive, "wb") as f:
                             async for chunk in resp.content.iter_chunked(65536):
                                 f.write(chunk)
-                        logger.info("下载完成")
+                        logger.info(f"[{name}] 下载完成")
                         downloaded = True
                         break
             except Exception as e:
-                logger.warning(f"下载失败: {e}")
+                logger.warning(f"[{name}] 下载失败: {e}")
                 continue
         if not downloaded:
             logger.warning("所有镜像均下载失败")
