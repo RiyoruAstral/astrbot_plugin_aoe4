@@ -100,6 +100,46 @@ PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright python -m
 
 > 如果 Playwright 不可用，`-score` 和 `matchup` 功能会自动回退到文字输出。
 
+## FlareSolverr 说明
+
+获取比赛详细评分数据时，插件需要绕过 Cloudflare 保护，会**自动下载并启动** [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)。
+
+### 系统要求
+
+FlareSolverr 的下载需要系统中安装 **wget**：
+
+| 系统 | 安装方式 |
+|:----|:---------|
+| **Windows** | 通过 [Chocolatey](https://chocolatey.org/) 安装：`choco install wget` |
+| **macOS** | `brew install wget` |
+| **Linux (Debian/Ubuntu)** | `apt install wget` |
+| **Linux (CentOS/RHEL)** | `yum install wget` |
+
+> 大多数 Linux 发行版和 macOS 默认已安装 wget。
+
+### 手动预下载
+
+如果自动下载较慢，你可以手动下载压缩包放到指定目录，插件会自动识别并跳过下载。
+
+1. 从 [GitHub Releases](https://github.com/FlareSolverr/FlareSolverr/releases) 下载对应系统的压缩包
+2. 放置到以下路径：
+
+| 系统 | 放置路径 |
+|:----|:---------|
+| **Windows** | `~\.cache\astrbot_plugin_aoe4\flaresolverr\flaresolverr_windows_x64.zip` |
+| **Linux** | `~/.cache/astrbot_plugin_aoe4/flaresolverr/flaresolverr_linux_x64.tar.gz` |
+| **macOS** | `~/.cache/astrbot_plugin_aoe4/flaresolverr/flaresolverr_darwin_x64.tar.gz` |
+
+其中 `~` 为用户主目录（Windows 下为 `C:\Users\<用户名>`）。压缩包文件名必须与 GitHub Releases 上的原始文件名一致。
+
+### 下载源（按顺序尝试）
+
+| 源 | 说明 |
+|:---|:-----|
+| 清华镜像 | 国内速度快，但新版本可能滞后 |
+| ghproxy.com 代理 | GitHub 国内代理，镜像未同步时兜底 |
+| GitHub 直连 | 最终 fallback |
+
 ## 数据来源
 
 - [AoE4 World API](https://aoe4world.com/api) — 玩家数据、天梯、对局

@@ -187,65 +187,76 @@ async def _install_and_start_flaresolverr() -> bool:
     version_file = os.path.join(_FLARESOLVERR_BINARY_DIR, ".version")
 
     if not os.path.exists(binary_path):
-        logger.info(f"正在下载 FlareSolverr {FLARESOLVERR_VERSION} ({arch})...")
-        os.makedirs(_FLARESOLVERR_CACHE_DIR, exist_ok=True)
-        download_urls = [
-            f"https://mirrors.tuna.tsinghua.edu.cn/github-release/FlareSolverr/FlareSolverr/{FLARESOLVERR_VERSION}/{archive_name}",
-            f"https://ghproxy.com/https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
-            f"https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
-        ]
-        tmp_dir = tempfile.mkdtemp()
-        tmp_archive = os.path.join(tmp_dir, archive_name)
-        downloaded = False
-        for i, dl_url in enumerate(download_urls, 1):
-            mirror_name = "清华镜像", "ghproxy.com 代理", "GitHub 直连"
-            name = mirror_name[i - 1] if i <= len(mirror_name) else f"镜像 {i}"
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(dl_url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
-                        if resp.status != 200:
-                            logger.warning(f"[{name}] 下载失败: HTTP {resp.status}")
-                            continue
-                        with open(tmp_archive, "wb") as f:
-                            async for chunk in resp.content.iter_chunked(65536):
-                                f.write(chunk)
+        archive_path = os.path.join(_FLARESOLVERR_CACHE_DIR, archive_name)
+
+        if os.path.exists(archive_path):
+            logger.info(f"发现预下载的压缩包: {archive_path}")
+        else:
+            logger.info(f"正在下载 FlareSolverr {FLARESOLVERR_VERSION} ({arch})...")
+            download_urls = [
+                f"https://mirrors.tuna.tsinghua.edu.cn/github-release/FlareSolverr/FlareSolverr/{FLARESOLVERR_VERSION}/{archive_name}",
+                f"https://ghproxy.com/https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
+                f"https://github.com/FlareSolverr/FlareSolverr/releases/download/{FLARESOLVERR_VERSION}/{archive_name}",
+            ]
+            os.makedirs(_FLARESOLVERR_CACHE_DIR, exist_ok=True)
+
+            downloaded = False
+            for i, dl_url in enumerate(download_urls, 1):
+                mirror_name = "清华镜像", "ghproxy.com 代理", "GitHub 直连"
+                name = mirror_name[i - 1] if i <= len(mirror_name) else f"镜像 {i}"
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "wget", "-O", archive_path, "-q", "--timeout=300",
+                        dl_url,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode == 0:
                         logger.info(f"[{name}] 下载完成")
                         downloaded = True
                         break
-            except Exception as e:
-                logger.warning(f"[{name}] 下载失败: {e}")
-                continue
-        if not downloaded:
-            logger.warning("所有镜像均下载失败")
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return False
+                    else:
+                        err_msg = stderr.decode("utf-8", errors="replace")[:200] if stderr else ""
+                        logger.warning(f"[{name}] 下载失败 (返回码 {proc.returncode})")
+                        if err_msg:
+                            logger.warning(f"[{name}] {err_msg}")
+                        continue
+                except FileNotFoundError:
+                    logger.warning("系统中未找到 wget 命令，请先安装 wget")
+                    downloaded = False
+                    break
+            if not downloaded:
+                logger.warning("所有镜像均下载失败")
+                return False
 
         logger.info("正在解压...")
-        extract_tmp = os.path.join(tmp_dir, "extracted")
-        if archive_name.endswith(".zip"):
-            with zipfile.ZipFile(tmp_archive, "r") as zf:
-                zf.extractall(extract_tmp)
-        else:
-            with tarfile.open(tmp_archive, "r:gz") as tf:
-                tf.extractall(extract_tmp)
-        items = os.listdir(extract_tmp)
-        if items:
-            src = os.path.join(extract_tmp, items[0])
-        else:
-            logger.warning("解压后目录为空")
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return False
-        if os.path.isdir(src):
-            if os.path.exists(_FLARESOLVERR_BINARY_DIR):
-                shutil.rmtree(_FLARESOLVERR_BINARY_DIR, ignore_errors=True)
-            shutil.copytree(src, _FLARESOLVERR_BINARY_DIR)
-        else:
-            os.makedirs(_FLARESOLVERR_BINARY_DIR, exist_ok=True)
-            shutil.copy2(src, binary_path)
-        with open(version_file, "w") as f:
-            f.write(FLARESOLVERR_VERSION)
-        logger.info(f"FlareSolverr 已解压到 {_FLARESOLVERR_BINARY_DIR}")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        extract_tmp = tempfile.mkdtemp()
+        try:
+            if archive_name.endswith(".zip"):
+                with zipfile.ZipFile(archive_path, "r") as zf:
+                    zf.extractall(extract_tmp)
+            else:
+                with tarfile.open(archive_path, "r:gz") as tf:
+                    tf.extractall(extract_tmp)
+            items = os.listdir(extract_tmp)
+            if items:
+                src = os.path.join(extract_tmp, items[0])
+            else:
+                logger.warning("解压后目录为空")
+                return False
+            if os.path.isdir(src):
+                if os.path.exists(_FLARESOLVERR_BINARY_DIR):
+                    shutil.rmtree(_FLARESOLVERR_BINARY_DIR, ignore_errors=True)
+                shutil.copytree(src, _FLARESOLVERR_BINARY_DIR)
+            else:
+                os.makedirs(_FLARESOLVERR_BINARY_DIR, exist_ok=True)
+                shutil.copy2(src, binary_path)
+            with open(version_file, "w") as f:
+                f.write(FLARESOLVERR_VERSION)
+            logger.info(f"FlareSolverr 已解压到 {_FLARESOLVERR_BINARY_DIR}")
+        finally:
+            shutil.rmtree(extract_tmp, ignore_errors=True)
 
     if not os.path.exists(binary_path):
         logger.warning(f"未找到 FlareSolverr 可执行文件: {binary_path}")
