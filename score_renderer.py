@@ -700,7 +700,7 @@ async def _install_chromium() -> bool:
 
     env = os.environ.copy()
     for mirror in [
-        "https://cdn.npmmirror.com/binaries/playwright",
+        "https://playwright.azureedge.net/",
         None,
     ]:
         if mirror:

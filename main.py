@@ -15,12 +15,30 @@ from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr
+    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser
     HAS_RENDERER = True
 except ImportError:
-    HAS_RENDERER = False
-    logger.warning("score_renderer 不可用，评分将以文字形式展示")
-    def set_renderer_tr(tr): pass
+    import subprocess
+    logger.warning("playwright 未安装，尝试自动安装...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "playwright==1.48.0", "-q",
+             "-i", "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"],
+            capture_output=True, timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info("playwright 安装成功，重新加载渲染模块...")
+            from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser
+            HAS_RENDERER = True
+        else:
+            stderr = result.stderr.decode(errors="ignore")[:200] if result.stderr else ""
+            logger.warning(f"playwright 自动安装失败: {stderr}")
+            HAS_RENDERER = False
+            def set_renderer_tr(tr): pass
+    except Exception as e:
+        logger.warning(f"playwright 自动安装异常: {e}")
+        HAS_RENDERER = False
+        def set_renderer_tr(tr): pass
 
 from i18n import Translator
 
@@ -444,6 +462,18 @@ class AstrBotAOE4Plugin(Star):
         )
         self.data = AoE4DataClient(translator=self.tr)
         logger.info(self.tr.t("plugin_loaded"))
+        if HAS_RENDERER:
+            asyncio.create_task(self._ensure_renderer_ready())
+
+    async def _ensure_renderer_ready(self):
+        try:
+            ok = await ensure_browser()
+            if ok:
+                logger.info("渲染引擎已提前就绪")
+            else:
+                logger.warning("渲染引擎初始化失败，将在使用时重试")
+        except Exception as e:
+            logger.warning(f"渲染引擎初始化异常: {e}")
 
     def _civ_name(self, civ_id: str) -> str:
         if not civ_id:
