@@ -19,20 +19,32 @@ try:
     HAS_RENDERER = True
 except ImportError:
     import subprocess
-    logger.warning("playwright 未安装，尝试自动安装...")
+    logger.warning("playwright 未安装，尝试自动安装（跳过依赖检查）...")
     try:
+        PIP_MIRROR = "-i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "playwright==1.48.0", "-q",
-             "-i", "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"],
+            [sys.executable, "-m", "pip", "install", "playwright==1.48.0", "--no-deps", "-q", PIP_MIRROR],
             capture_output=True, timeout=120,
         )
-        if result.returncode == 0:
-            logger.info("playwright 安装成功，重新加载渲染模块...")
+        playwright_ok = result.returncode == 0
+        deps_ok = False
+        if playwright_ok:
+            deps = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "pyee", "greenlet", "-q", PIP_MIRROR],
+                capture_output=True, timeout=120,
+            )
+            deps_ok = deps.returncode == 0
+        if playwright_ok and deps_ok:
+            logger.info("playwright 及核心依赖安装成功，重新加载渲染模块...")
             from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser
             HAS_RENDERER = True
         else:
-            stderr = result.stderr.decode(errors="ignore")[:200] if result.stderr else ""
-            logger.warning(f"playwright 自动安装失败: {stderr}")
+            if not playwright_ok:
+                detail = result.stderr.decode(errors="ignore")[:200] if result.stderr else ""
+                logger.warning(f"playwright 安装失败: {detail}")
+            if playwright_ok and not deps_ok:
+                detail = deps.stderr.decode(errors="ignore")[:200] if deps.stderr else ""
+                logger.warning(f"核心依赖 (pyee, greenlet) 安装失败: {detail}")
             HAS_RENDERER = False
             def set_renderer_tr(tr): pass
     except Exception as e:
