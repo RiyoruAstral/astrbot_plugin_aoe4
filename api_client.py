@@ -17,12 +17,14 @@ AOE4WORLD_API = "https://aoe4world.com/api/v0"
 USER_AGENT = "astrbot_plugin_aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
 FLARESOLVERR_URL = "http://localhost:8191/v1"
+_FLARESOLVERR_BASE = "http://localhost:8191/"
 
 
 def set_flaresolverr_url(host: str, port: int):
-    global FLARESOLVERR_URL
+    global FLARESOLVERR_URL, _FLARESOLVERR_BASE
     if host:
         FLARESOLVERR_URL = f"http://{host}:{port}/v1"
+        _FLARESOLVERR_BASE = f"http://{host}:{port}/"
 
 
 _FLARESOLVERR_MODE = "once"
@@ -80,7 +82,7 @@ async def _run_cmd(*args, timeout: int = 180, env: dict | None = None) -> tuple[
 async def _check_flaresolverr() -> bool:
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(FLARESOLVERR_URL, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.post(FLARESOLVERR_URL, json={"cmd": "request.get", "url": "https://aoe4world.com/api/v0/status", "maxTimeout": 5000}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 return resp.status == 200
     except Exception:
         return False
@@ -312,14 +314,12 @@ async def _install_and_start_flaresolverr() -> bool:
 async def check_flaresolverr_connection() -> tuple[bool, str]:
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(FLARESOLVERR_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.post(FLARESOLVERR_URL, json={"cmd": "request.get", "url": "https://aoe4world.com/api/v0/status", "maxTimeout": 10000}, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status == 200:
-                    body = await resp.json()
-                    msg = body.get("msg", body.get("msg", "ready"))
-                    return True, f"已连接 ({msg})"
+                    return True, "已连接 (FlareSolverr 正常运行)"
                 return False, f"响应异常: HTTP {resp.status}"
     except aiohttp.ClientConnectorError:
-        return False, f"连接失败 ({FLARESOLVERR_URL} 无响应)"
+        return False, "连接失败 (地址无响应)"
     except asyncio.TimeoutError:
         return False, "连接超时"
     except Exception as e:
@@ -345,7 +345,7 @@ async def ensure_flaresolverr() -> bool:
             logger.info("FlareSolverr 已在运行")
             return True
 
-        if "localhost" not in FLARESOLVERR_URL and "127.0.0.1" not in FLARESOLVERR_URL:
+        if "localhost" not in _FLARESOLVERR_BASE and "127.0.0.1" not in _FLARESOLVERR_BASE:
             logger.warning(f"FlareSolverr 指向远程地址({FLARESOLVERR_URL})但未就绪，跳过自动安装")
             return False
 
