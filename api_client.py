@@ -152,6 +152,12 @@ class AoE4WorldClient:
     async def get_player(self, profile_id: int) -> dict | None:
         return await self._request(f"/players/{profile_id}")
 
+    async def search_player(self, name: str) -> list[dict]:
+        data = await self._request("/players/search", {"query": name})
+        if not data:
+            return []
+        return data.get("players", [])
+
     async def get_player_games(self, profile_id: int, limit: int = 5) -> list[dict]:
         data = await self._request(f"/players/{profile_id}/games", {"limit": limit})
         if not data:
