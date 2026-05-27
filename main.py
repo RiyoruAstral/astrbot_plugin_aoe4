@@ -451,13 +451,15 @@ SUBCOMMAND_HELP = {
         "📊 /aoe4 matchup [模式]\n"
         "查询各文明之间的对战胜率表，以二维矩阵形式展示。\n\n"
         "参数:\n"
-        "  [模式]    solo / 1v1 / 2v2 / 3v3 / 4v4（默认 solo）\n\n"
+        "  排位:     solo / 1v1 / 2v2 / 3v3 / 4v4 / team（默认 solo）\n"
+        "  快速:     qm / quick / qm_1v1 / qm_2v2 / qm_3v3 / qm_4v4\n\n"
         "说明:\n"
         "  行文明 vs 列文明的胜率百分比。绿色=有利，红色=不利。\n"
         "  需要 Playwright 渲染图片，否则以文字表格回退。\n\n"
         "示例:\n"
         "  /aoe4 matchup\n"
-        "  /aoe4 matchup 2v2"
+        "  /aoe4 matchup 2v2\n"
+        "  /aoe4 matchup qm_1v1"
     ),
 }
 
@@ -1199,16 +1201,21 @@ class AstrBotAOE4Plugin(Star):
 
     async def _handle_matchup(self, event: AstrMessageEvent):
         parts = event.message_str.strip().split(maxsplit=2)
-        mode = parts[2].strip() if len(parts) >= 3 else "rm_solo"
+        mode = parts[2].strip().lower() if len(parts) >= 3 else "rm_solo"
 
-        if mode in ("solo", "1v1"):
-            mode = "rm_solo"
-        elif mode in ("2v2", "team"):
-            mode = "rm_2v2"
-        elif mode == "3v3":
-            mode = "rm_3v3"
-        elif mode == "4v4":
-            mode = "rm_4v4"
+        MODE_MAP = {
+            "solo": "rm_solo", "1v1": "rm_solo", "rm_solo": "rm_solo",
+            "2v2": "rm_2v2", "rm_2v2": "rm_2v2",
+            "3v3": "rm_3v3", "rm_3v3": "rm_3v3",
+            "4v4": "rm_4v4", "rm_4v4": "rm_4v4",
+            "team": "rm_team", "rm_team": "rm_team",
+            "qm": "qm_1v1", "quick": "qm_1v1", "快速": "qm_1v1",
+            "qm_1v1": "qm_1v1", "qm1v1": "qm_1v1",
+            "qm_2v2": "qm_2v2", "qm2v2": "qm_2v2",
+            "qm_3v3": "qm_3v3", "qm3v3": "qm_3v3",
+            "qm_4v4": "qm_4v4", "qm4v4": "qm_4v4",
+        }
+        mode = MODE_MAP.get(mode, mode)
 
         raw = await self.client.get_matchups(mode)
         if not raw:
@@ -1394,13 +1401,13 @@ class AstrBotAOE4Plugin(Star):
         lines.append(f"  建筑: {len(data['buildings'])}")
         lines.append(f"  科技: {len(data['technologies'])}")
         if unique_units:
-            lines.append(f"  ⭐ 特色单位: {' | '.join(u['name'] for u in unique_units)}")
+            lines.append(f"  ⭐ 特色单位: {' | '.join(self.tr.unit(u['name']) for u in unique_units)}")
         unique_buildings = [b for b in data["buildings"] if b.get("unique")]
         if unique_buildings:
-            lines.append(f"  ⭐ 特色建筑: {' | '.join(b['name'] for b in unique_buildings)}")
+            lines.append(f"  ⭐ 特色建筑: {' | '.join(self.tr.building(b['name']) for b in unique_buildings)}")
         unique_techs = [t for t in data["technologies"] if t.get("unique")]
         if unique_techs:
-            lines.append(f"  ⭐ 特色科技: {' | '.join(t['name'] for t in unique_techs)}")
+            lines.append(f"  ⭐ 特色科技: {' | '.join(self.tr.tech(t['name']) for t in unique_techs)}")
         yield event.plain_result("\n".join(lines))
 
     async def _handle_unit(self, event: AstrMessageEvent):
@@ -1463,7 +1470,11 @@ class AstrBotAOE4Plugin(Star):
             return
         lines = ["📰 AoE4 最近版本更新\n━━━━━━━━━━━━━━━━"]
         for p in patches:
-            lines.append(f"\n📅 {p.get('date', p.get('pub_date', '?'))}")
+            date_val = p.get('date', '')
+            if date_val:
+                lines.append(f"\n📅 {date_val} ({_elapsed(f'{date_val}T00:00:00+00:00')})")
+            else:
+                lines.append(f"\n📅 {p.get('pub_date', '?')}")
             lines.append(f"  {p.get('title', '?')}")
             if p.get('description'):
                 lines.append(f"  {p.get('description')}")
