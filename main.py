@@ -15,7 +15,7 @@ from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr
+    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr
     HAS_RENDERER = True
 except ImportError:
     HAS_RENDERER = False
@@ -185,6 +185,7 @@ HELP_TEXT = (
     "  /aoe4 patch             查看最近版本更新\n"
     "  /aoe4 game <比赛ID>     通过ID查比赛详情\n"
     "                       加 -score 评分图  -gid/-pid 显示ID\n"
+    "  /aoe4 matchup [模式]     查询文明对战胜率表\n"
     "━━━━━━━━━━━━━━━━\n"
     "💡 通用标志:  -gid 显示对局ID  -pid 显示Profile ID"
 )
@@ -414,6 +415,18 @@ SUBCOMMAND_HELP = {
         "  /aoe4 game 234460841\n"
         "  /aoe4 game 234460841 -score"
     ),
+    "matchup": (
+        "📊 /aoe4 matchup [模式]\n"
+        "查询各文明之间的对战胜率表，以二维矩阵形式展示。\n\n"
+        "参数:\n"
+        "  [模式]    solo / 1v1 / 2v2 / 3v3 / 4v4（默认 solo）\n\n"
+        "说明:\n"
+        "  行文明 vs 列文明的胜率百分比。绿色=有利，红色=不利。\n"
+        "  需要 Playwright 渲染图片，否则以文字表格回退。\n\n"
+        "示例:\n"
+        "  /aoe4 matchup\n"
+        "  /aoe4 matchup 2v2"
+    ),
 }
 
 
@@ -491,6 +504,7 @@ class AstrBotAOE4Plugin(Star):
             "compare": self._handle_compare,
             "mecompare": self._handle_mecompare,
             "game": self._handle_game,
+            "matchup": self._handle_matchup,
         }
 
         handler = method_map.get(sub)
@@ -1113,6 +1127,7 @@ class AstrBotAOE4Plugin(Star):
                 f"{t('section_patch')}\n"
                 f"  {t('help_patch')}\n"
                 f"  {t('help_game')}\n"
+                f"  {t('help_matchup')}\n"
                 "━━━━━━━━━━━━━━━━\n"
                 f"{t('help_general_hint')}"
             )
@@ -1129,6 +1144,66 @@ class AstrBotAOE4Plugin(Star):
             time_ago = _elapsed(g.get("started_at", ""))
             lines.append(f"  {gid} | {map_name} | {time_ago}")
         return lines
+
+    async def _handle_matchup(self, event: AstrMessageEvent):
+        parts = event.message_str.strip().split(maxsplit=2)
+        mode = parts[2].strip() if len(parts) >= 3 else "rm_solo"
+
+        if mode in ("solo", "1v1"):
+            mode = "rm_solo"
+        elif mode in ("2v2", "team"):
+            mode = "rm_2v2"
+        elif mode == "3v3":
+            mode = "rm_3v3"
+        elif mode == "4v4":
+            mode = "rm_4v4"
+
+        raw = await self.client.get_matchups(mode)
+        if not raw:
+            yield event.plain_result("未能获取 matchup 数据，请稍后重试")
+            return
+
+        data = raw.get("data", [])
+        if not data:
+            yield event.plain_result("该模式暂无 matchup 数据")
+            return
+
+        patch = raw.get("patch", "?")
+        if not HAS_RENDERER:
+            mode_label = self._mode_name(mode)
+            lines = [f"📊 {mode_label} Matchups ({patch})"]
+            civs: dict[str, dict[str, float]] = {}
+            for entry in data:
+                c1 = entry["civilization"]
+                c2 = entry["other_civilization"]
+                wr = entry["win_rate"]
+                if c1 not in civs:
+                    civs[c1] = {}
+                civs[c1][c2] = wr
+            ordered = sorted(civs.keys())
+            for c1 in ordered:
+                row_parts = [self._civ_name(c1)]
+                for c2 in ordered:
+                    wr = civs.get(c1, {}).get(c2)
+                    if c1 == c2:
+                        row_parts.append("—")
+                    elif wr is not None:
+                        row_parts.append(f"{wr:.1f}%")
+                    else:
+                        row_parts.append("·")
+                lines.append("  " + " | ".join(row_parts))
+            yield event.plain_result("\n".join(lines))
+            return
+
+        html = generate_matchup_html(data, mode, patch)
+        cache_dir = os.path.join(tempfile.gettempdir(), "aoe4_matchup_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        img_path = os.path.join(cache_dir, f"matchup_{uuid.uuid4().hex}.jpg")
+        ok = await render_html_to_image(html, img_path, width=min(400 + len(data) * 20, 1200), scale=2)
+        if ok and os.path.exists(img_path):
+            yield event.chain_result([Image(file=img_path)])
+        else:
+            yield event.plain_result("图片渲染失败，请稍后重试")
 
     def _format_game_fallback(self, game: dict, map_name: str, kind: str, dur: str, time_ago: str, id_suffix: str = "") -> str:
         lines = [f"🎮 比赛 | {kind} | {map_name} | {dur} | {time_ago}{id_suffix}", "📊 评分数据暂不可用，显示阵容:"]

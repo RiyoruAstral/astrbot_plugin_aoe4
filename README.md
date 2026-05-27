@@ -1,4 +1,4 @@
-# astrbot-plugin-aoe4
+# astrbot_plugin_aoe4
 
 帝国时代4（Age of Empires IV）信息查询 AstrBot 插件。支持评分图片渲染、搞怪锐评、完整游戏数据查询。
 

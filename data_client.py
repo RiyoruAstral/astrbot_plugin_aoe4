@@ -3,7 +3,7 @@ import aiohttp
 from astrbot.api import logger
 
 DATA_BASE = "https://data.aoe4world.com"
-USER_AGENT = "astrbot-plugin-aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
+USER_AGENT = "astrbot_plugin_aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
 CIV_NAME_TO_CODE = {
     "abbasid_dynasty": "ab", "english": "en", "chinese": "ch",

@@ -478,6 +478,112 @@ body {{
 </html>"""
 
 
+def generate_matchup_html(data: list[dict], mode: str, patch: str) -> str:
+    civ_set: set[str] = set()
+    for entry in data:
+        civ_set.add(entry["civilization"])
+        civ_set.add(entry["other_civilization"])
+    all_civs = sorted(civ_set)
+
+    n = len(all_civs)
+    if n > 30:
+        return "<html><body><p>Too many civilizations</p></body></html>"
+
+    winrate: dict[tuple[str, str], float] = {}
+    games: dict[tuple[str, str], int] = {}
+    for entry in data:
+        c1 = entry["civilization"]
+        c2 = entry["other_civilization"]
+        winrate[(c1, c2)] = entry["win_rate"]
+        games[(c1, c2)] = entry["games_count"]
+
+    def _civ_label(code: str) -> str:
+        name = _civ_name(code)
+        if len(name) > 6:
+            return name[:6] + "."
+        return name
+
+    def _wr_color(wr: float) -> str:
+        if wr >= 57:
+            return "#1b6b3a"
+        if wr >= 53:
+            return "#2d7d46"
+        if wr >= 48:
+            return "#3a3a5a"
+        if wr >= 43:
+            return "#7d3a2d"
+        return "#6b2d1b"
+
+    def _wr_text_color(wr: float) -> str:
+        if wr >= 53 or wr <= 47:
+            return "#fff"
+        return "#ccc"
+
+    rows_html = ""
+    for i, c1 in enumerate(all_civs):
+        cells = ""
+        for j, c2 in enumerate(all_civs):
+            key = (c1, c2)
+            wr = winrate.get(key)
+            gc = games.get(key, 0)
+            if c1 == c2:
+                cells += '<td class="mirror">\u2014</td>'
+            elif wr is not None:
+                bg = _wr_color(wr)
+                tc = _wr_text_color(wr)
+                cells += f'<td style="background:{bg};color:{tc}"><span class="wr">{wr:.1f}%</span><span class="gc">{gc}</span></td>'
+            else:
+                cells += '<td class="no-data">\u00b7</td>'
+        rows_html += f"<tr><th class=\"row-hdr\">{_civ_label(c1)}</th>{cells}</tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.2.9/index.css" rel="stylesheet">
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{
+  font-family: "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 50%, #24243e 100%);
+  padding: 16px;
+  color: #e0e0e0;
+}}
+.header {{
+  text-align: center;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+}}
+.header h2 {{ font-size: 16px; color: #fff; }}
+.header p {{ font-size: 11px; color: #999; }}
+table {{ border-collapse: collapse; font-size: 11px; width: 100%; }}
+th, td {{ padding: 3px 4px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }}
+th.col-hdr {{ writing-mode: vertical-lr; text-orientation: mixed; font-weight: 600; color: #ccc; background: rgba(255,255,255,0.04); font-size: 10px; height: 70px; white-space: nowrap; }}
+th.row-hdr {{ text-align: right; font-weight: 600; color: #ccc; background: rgba(255,255,255,0.04); font-size: 10px; white-space: nowrap; padding-right: 6px; }}
+td {{ min-width: 44px; }}
+td.mirror {{ background: rgba(255,255,255,0.04); color: #555; }}
+td.no-data {{ background: rgba(255,255,255,0.02); color: #444; }}
+span.wr {{ display: block; font-weight: 700; font-size: 12px; }}
+span.gc {{ display: block; font-size: 8px; opacity: 0.6; }}
+.footer {{ text-align: center; margin-top: 8px; font-size: 10px; color: #444; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <h2>{_civ_name(mode) if TR else mode} Matchups</h2>
+  <p>Patch {patch} | Row civ win rate vs Column civ</p>
+</div>
+<table>
+<thead><tr><th></th>{''.join(f'<th class="col-hdr">{_civ_label(c)}</th>' for c in all_civs)}</tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+<div class="footer">{_s('footer')}</div>
+</body>
+</html>"""
+
+
 def _tag_color(idx: int) -> str:
     colors = [
         "rgba(66,133,244,0.7)", "rgba(234,67,53,0.7)",

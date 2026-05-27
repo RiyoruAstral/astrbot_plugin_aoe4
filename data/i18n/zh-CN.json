@@ -606,7 +606,7 @@
     "buildings": "建筑",
     "techs": "科技",
     "analysis_title": "搞怪锐评",
-    "footer": "Powered by astrbot-plugin-aoe4",
+    "footer": "Powered by astrbot_plugin_aoe4",
     "tag_farmer": "种田王",
     "tag_farmer_desc": "种了 {food} 食物，仿佛开了农场",
     "tag_economist": "经济大师",

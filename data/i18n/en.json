@@ -318,7 +318,7 @@
     "buildings": "Buildings",
     "techs": "Techs",
     "analysis_title": "Hot Takes",
-    "footer": "Powered by astrbot-plugin-aoe4",
+    "footer": "Powered by astrbot_plugin_aoe4",
     "tag_farmer": "Farm King",
     "tag_farmer_desc": "Farmed {food} food, like a living plantation",
     "tag_economist": "Economy Master",

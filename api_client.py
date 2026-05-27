@@ -7,7 +7,7 @@ import aiohttp
 from astrbot.api import logger
 
 AOE4WORLD_API = "https://aoe4world.com/api/v0"
-USER_AGENT = "astrbot-plugin-aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
+USER_AGENT = "astrbot_plugin_aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
 FLARESOLVERR_URL = "http://flaresolverr:8191/v1"
 
@@ -228,6 +228,22 @@ class AoE4WorldClient:
         except Exception as e:
             logger.error(f"获取 patch notes 失败: {e}")
             return list(FALLBACK_PATCHES[:limit])
+
+    async def get_matchups(self, mode: str = "rm_solo") -> dict | None:
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{AOE4WORLD_API}/stats/{mode}/matchups",
+                timeout=aiohttp.ClientTimeout(total=TIMEOUT_DEFAULT),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(f" matchup查询失败: {resp.status}")
+                    return None
+                raw = await resp.json()
+                return raw
+        except Exception as e:
+            logger.error(f"matchup查询请求失败: {e}")
+            return None
 
     @staticmethod
     def _parse_rss_aoe4(xml_text: str, limit: int) -> list[dict]:

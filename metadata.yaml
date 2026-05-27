@@ -1,9 +1,9 @@
-name: astrbot-plugin-aoe4
-display_name: AOE4 对战查询
-desc: 帝国时代4 信息查询、评分对比、版本更新与数据查询插件，支持 i18n 中英双语
+name: astrbot_plugin_aoe4
+display_name: 帝国时代4(AOE4) 对战查询
+desc: 帝国时代4 信息查询、评分对比、版本更新与数据查询插件，支持 i18n 中英双语 只在OneBot内进行测试过
 author: RiyoruAstral
 version: 1.1.0
-repo: https://github.com/RiyoruAstral/astrbot-plugin-aoe4
+repo: https://github.com/RiyoruAstral/astrbot_plugin_aoe4
 short_desc: 帝国时代4 游戏数据查询、评分对比图片渲染
 support_platforms:
   - aiocqhttp

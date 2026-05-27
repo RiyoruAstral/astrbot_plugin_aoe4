@@ -136,8 +136,8 @@ class Translator:
 
 _TABLE: dict[str, dict[str, str]] = {
     "zh-CN": {
-        "plugin_loaded": "astrbot-plugin-aoe4 已加载",
-        "plugin_unloaded": "astrbot-plugin-aoe4 已卸载",
+        "plugin_loaded": "astrbot_plugin_aoe4 已加载",
+        "plugin_unloaded": "astrbot_plugin_aoe4 已卸载",
         "help_title": "🎮 AOE4 查询插件 v1.1.0",
         "help_general_hint": "💡 通用标志:  -gid 显示对局ID  -pid 显示Profile ID",
         "help_bind": "/aoe4 bind <游戏ID>      通过名字搜索绑定",
@@ -159,6 +159,7 @@ _TABLE: dict[str, dict[str, str]] = {
         "help_counter": "/aoe4 counter <单位>     查询克制关系",
         "help_patch": "/aoe4 patch             查看最近版本更新",
         "help_game": "/aoe4 game <比赛ID>     通过ID查比赛详情\n                       加 -score 评分图  -gid/-pid 显示ID",
+        "help_matchup": "/aoe4 matchup [模式]     查询文明对战胜率表（需要Playwright）",
         "section_bind": "📌 账号绑定",
         "section_stats": "📊 战绩查询",
         "section_leaderboard": "🏆 天梯与搜索",
@@ -260,8 +261,8 @@ _TABLE: dict[str, dict[str, str]] = {
         "err_flaresolverr": "FlareSolverr 不可用",
     },
     "en": {
-        "plugin_loaded": "astrbot-plugin-aoe4 loaded",
-        "plugin_unloaded": "astrbot-plugin-aoe4 unloaded",
+        "plugin_loaded": "astrbot_plugin_aoe4 loaded",
+        "plugin_unloaded": "astrbot_plugin_aoe4 unloaded",
         "help_title": "🎮 AOE4 Query Plugin v1.1.0",
         "help_general_hint": "💡 Flags:  -gid show game ID  -pid show profile ID",
         "help_bind": "/aoe4 bind <IGN>          Search & bind by IGN",
@@ -283,6 +284,7 @@ _TABLE: dict[str, dict[str, str]] = {
         "help_counter": "/aoe4 counter <unit>     Query counter relationships",
         "help_patch": "/aoe4 patch             View latest patch notes",
         "help_game": "/aoe4 game <gameID>     View game by ID\n                      -score for image  -gid/-pid for IDs",
+        "help_matchup": "/aoe4 matchup [mode]  Civilization matchup table (requires Playwright)",
         "section_bind": "📌 Account Binding",
         "section_stats": "📊 Match Stats",
         "section_leaderboard": "🏆 Leaderboard & Search",
