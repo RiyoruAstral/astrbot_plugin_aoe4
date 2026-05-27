@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 import re
+import sys
 import time
 import xml.etree.ElementTree as ET
 import aiohttp
@@ -9,7 +11,10 @@ from astrbot.api import logger
 AOE4WORLD_API = "https://aoe4world.com/api/v0"
 USER_AGENT = "astrbot_plugin_aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
-FLARESOLVERR_URL = "http://flaresolverr:8191/v1"
+FLARESOLVERR_URL = "http://localhost:8191/v1"
+_FLARESOLVERR_PROCESS: asyncio.subprocess.Process | None = None
+_FLARESOLVERR_LOCK = asyncio.Lock()
+_FLARESOLVERR_ATTEMPTED = False
 
 TIMEOUT_DEFAULT = 15
 TIMEOUT_LEADERBOARD = 30
@@ -31,63 +36,118 @@ class RateLimiter:
                 await asyncio.sleep(sleep_for)
         self._calls.append(time.monotonic())
 
-FALLBACK_PATCHES = [
-    {
-        "date": "May 21, 2026", "title": "Age of Empires IV – Minor Patch 16.1.10056",
-        "description": "晋朝靺鞨部民、长城壁垒加强，战国大名马匹训练、屋台等遭削弱。修复施法模式、崩溃及音频问题。"
-    },
-    {
-        "date": "Apr 30, 2026", "title": "Age of Empires IV – Update 16.1.9737 (Season 13)",
-        "description": "岳飞传 DLC 发布与新文明晋朝，排位赛季改为固定3个月周期，大量平衡调整与AI改进。"
-    },
-    {
-        "date": "Mar 18, 2026", "title": "Age of Empires IV – Patch 15.4.8719",
-        "description": "赛季12平衡性调整，多个文明改动与Bug修复。"
-    },
-    {
-        "date": "Jan 27, 2026", "title": "Age of Empires IV – Patch 15.2.7380",
-        "description": "修复丢失技能点问题，排位地图池调整，Torguud、工人象、治疗象等单位调整。"
-    },
-    {
-        "date": "Nov 12, 2025", "title": "Age of Empires IV – Minor Patch 15.1.7149",
-        "description": "工人象无法从不完整建筑中生成，已知问题列表更新。"
-    },
-]
+
+async def _run_cmd(*args, timeout: int = 180, env: dict | None = None) -> tuple[int, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        output = stdout.decode("utf-8", errors="ignore") if stdout else ""
+        rc = proc.returncode if proc.returncode is not None else 0
+        return rc, output
+    except asyncio.TimeoutError:
+        return -1, "timeout"
+    except Exception as e:
+        return -2, str(e)
+
+
+async def _check_flaresolverr() -> bool:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(FLARESOLVERR_URL, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                return resp.status == 200
+    except Exception:
+        return False
+
+
+async def _install_and_start_flaresolverr() -> bool:
+    global _FLARESOLVERR_PROCESS
+    try:
+        code, output = await _run_cmd("node", "--version", timeout=15)
+        if code != 0:
+            logger.warning("Node.js 未安装，无法安装 FlareSolverr")
+            return False
+    except Exception:
+        logger.warning("Node.js 未安装，无法安装 FlareSolverr")
+        return False
+
+    logger.info("正在通过 npx 安装并启动 FlareSolverr...")
+    try:
+        _FLARESOLVERR_PROCESS = await asyncio.create_subprocess_exec(
+            "npx", "flaresolverr",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env={**os.environ, "NODE_ENV": "production"},
+        )
+        logger.info("FlareSolverr 进程已启动，等待服务就绪...")
+        for i in range(30):
+            await asyncio.sleep(2)
+            if await _check_flaresolverr():
+                logger.info("FlareSolverr 已就绪")
+                return True
+            if _FLARESOLVERR_PROCESS.returncode is not None and _FLARESOLVERR_PROCESS.returncode != 0:
+                logger.warning(f"FlareSolverr 进程意外退出，code={_FLARESOLVERR_PROCESS.returncode}")
+                break
+        logger.warning("FlareSolverr 启动超时")
+        return False
+    except Exception as e:
+        logger.warning(f"启动 FlareSolverr 失败: {e}")
+        return False
+
+
+async def ensure_flaresolverr() -> bool:
+    global _FLARESOLVERR_ATTEMPTED
+    if _FLARESOLVERR_ATTEMPTED:
+        return _FLARESOLVERR_PROCESS is not None and _FLARESOLVERR_PROCESS.returncode is None
+    async with _FLARESOLVERR_LOCK:
+        if _FLARESOLVERR_ATTEMPTED:
+            return _FLARESOLVERR_PROCESS is not None and _FLARESOLVERR_PROCESS.returncode is None
+        _FLARESOLVERR_ATTEMPTED = True
+        if await _check_flaresolverr():
+            logger.info("FlareSolverr 已在运行")
+            return True
+        logger.info("FlareSolverr 未运行，尝试安装并启动...")
+        return await _install_and_start_flaresolverr()
 
 
 class AoE4WorldClient:
     def __init__(self):
         self._session: aiohttp.ClientSession | None = None
+        self._lock = asyncio.Lock()
+        self._summary_limiter = RateLimiter(max_calls=6, period=60.0)
         self._summary_cache: dict[int, dict | None] = {}
-        self._summary_limiter = RateLimiter(max_calls=6, period=60)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
-                headers={"User-Agent": USER_AGENT}
+                headers={"User-Agent": USER_AGENT},
+                timeout=aiohttp.ClientTimeout(total=TIMEOUT_DEFAULT),
             )
         return self._session
 
-    async def _request(self, path: str, params: dict | None = None, timeout: int = TIMEOUT_DEFAULT) -> dict | None:
+    async def _request(self, path: str, params: dict | None = None, timeout: int | None = None) -> dict | None:
         session = await self._get_session()
         try:
-            async with session.get(f"{AOE4WORLD_API}{path}", params=params, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+            t = aiohttp.ClientTimeout(total=timeout or TIMEOUT_DEFAULT)
+            async with session.get(f"{AOE4WORLD_API}{path}", params=params, timeout=t) as resp:
                 if resp.status != 200:
                     logger.warning(f"AoE4 World API 返回 {resp.status}: {path}")
                     return None
                 return await resp.json()
         except asyncio.TimeoutError:
-            logger.error(f"AoE4 World API 超时: {path}")
+            logger.warning(f"AoE4 World API 超时: {path}")
             return None
         except Exception as e:
-            logger.error(f"AoE4 World API 请求失败 {path}: {type(e).__name__}: {e}")
+            logger.error(f"AoE4 World API 请求失败 {path}: {e}")
             return None
 
-    async def search_player(self, name: str) -> list[dict]:
-        data = await self._request("/players/search", {"query": name})
-        if not data:
-            return []
-        return data.get("players", [])
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def get_player(self, profile_id: int) -> dict | None:
         return await self._request(f"/players/{profile_id}")
@@ -108,15 +168,15 @@ class AoE4WorldClient:
     async def get_game_summary_by_id(self, game_id: int, profile_id: int | None = None) -> dict | None:
         if game_id in self._summary_cache:
             logger.debug(f"Game summary 命中缓存: {game_id}")
-            cached = self._summary_cache[game_id]
-            return dict(cached) if cached is not None else None
+            return self._summary_cache[game_id]
 
         if profile_id is None:
             game = await self.get_game_by_id(game_id)
-            if not game or not game.get("teams"):
+            if not game:
                 self._summary_cache[game_id] = None
                 return None
-            for team in game["teams"]:
+            profile_id = None
+            for team in game.get("teams", []):
                 for p in team:
                     if "profile_id" in p:
                         profile_id = p["profile_id"]
@@ -128,9 +188,7 @@ class AoE4WorldClient:
                 return None
 
         await self._summary_limiter.wait()
-
         url = f"https://aoe4world.com/players/{profile_id}/games/{game_id}/summary?camelize=true"
-
         data = await self._fetch_summary_via_flaresolverr(url)
         if data is not None:
             if data.get("players"):
@@ -140,12 +198,16 @@ class AoE4WorldClient:
             logger.warning(f"Game summary 通过 FlareSolverr 获取到空数据 (game_id={game_id})")
             self._summary_cache[game_id] = None
             return None
-
         logger.info(f"FlareSolverr 不可用，放弃获取 summary (game_id={game_id})")
         self._summary_cache[game_id] = None
         return None
 
     async def _fetch_summary_via_flaresolverr(self, url: str) -> dict | None:
+        ok = await ensure_flaresolverr()
+        if not ok:
+            logger.warning("FlareSolverr 不可用，跳过 summary 请求")
+            return None
+
         last_error = None
         for attempt in range(3):
             try:
@@ -201,7 +263,6 @@ class AoE4WorldClient:
                 last_error = f"{type(e).__name__}: {e}"
                 await asyncio.sleep(2 ** attempt * 2)
                 continue
-
         logger.warning(f"FlareSolverr({FLARESOLVERR_URL}) 3次尝试均失败: {last_error}")
         return None
 
@@ -258,28 +319,34 @@ class AoE4WorldClient:
                 continue
             title = item.findtext("title", "")
             link = item.findtext("link", "")
+            desc = item.findtext("description", "")
             pub_date = item.findtext("pubDate", "")
-            description = item.findtext("description", "")
-            desc = re.sub(r'<[^>]+>', '', description)
-            desc = re.sub(r'\s+', ' ', desc).strip()
-            if len(desc) > 200:
-                desc = desc[:197] + "..."
-            from datetime import datetime
-            try:
-                dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
-                date_str = dt.strftime("%b %d, %Y")
-            except Exception:
-                date_str = pub_date
-            patches.append({
-                "date": date_str,
-                "title": title,
-                "url": link,
-                "description": desc,
-            })
+            if title:
+                patches.append({
+                    "title": title,
+                    "link": link,
+                    "description": desc,
+                    "pub_date": pub_date,
+                    "version": title.split()[0] if title else "",
+                })
             if len(patches) >= limit:
                 break
         return patches
 
-    async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
+
+FALLBACK_PATCHES = [
+    {
+        "title": "10.1.576 ",
+        "link": "https://www.ageofempires.com/news/aoe4-pup-10-1-576/",
+        "description": "Season Ten Anniversary Update brings a variety of",
+        "pub_date": "Thu, 08 May 2025 00:00:00 GMT",
+        "version": "10.1.576",
+    },
+    {
+        "title": "10.0.538 Season 10",
+        "link": "https://www.ageofempires.com/news/aoe4-season-10/",
+        "description": "Season 10 Anniversary Update! New Civilizations:",
+        "pub_date": "Fri, 28 Mar 2025 00:00:00 GMT",
+        "version": "10.0.538",
+    },
+]
