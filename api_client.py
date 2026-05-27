@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import platform
 import re
 import sys
 import time
@@ -64,15 +65,97 @@ async def _check_flaresolverr() -> bool:
         return False
 
 
+async def _ensure_nodejs() -> bool:
+    code, _ = await _run_cmd("node", "--version", timeout=15)
+    if code == 0:
+        return True
+
+    logger.info("Node.js 未安装，正在尝试自动安装...")
+    system = sys.platform
+
+    if system.startswith("linux"):
+        try:
+            code, output = await _run_cmd("apt-get", "update", "-qq", timeout=120)
+            if code != 0:
+                logger.warning(f"apt-get update 失败: {output[:200]}")
+                return False
+            code, output = await _run_cmd(
+                "apt-get", "install", "-y", "-qq", "nodejs", "npm",
+                timeout=180,
+            )
+            if code == 0:
+                logger.info("Node.js 通过 apt-get 安装成功")
+                return True
+            logger.warning(f"apt-get install nodejs 失败: {output[:200]}")
+            code, output = await _run_cmd(
+                "curl", "-fsSL", "https://deb.nodesource.com/setup_22.x",
+                "-o", "/tmp/nodesource_setup.sh",
+                timeout=60,
+            )
+            if code != 0:
+                logger.warning("下载 NodeSource 脚本失败")
+                return False
+            code, _ = await _run_cmd("bash", "/tmp/nodesource_setup.sh", timeout=60)
+            if code != 0:
+                logger.warning("NodeSource 安装脚本执行失败")
+                return False
+            code, _ = await _run_cmd("apt-get", "install", "-y", "-qq", "nodejs", timeout=180)
+            if code == 0:
+                logger.info("Node.js 通过 NodeSource 安装成功")
+                return True
+            logger.warning("NodeSource 安装后 apt-get install 仍失败")
+            return False
+        except Exception as e:
+            logger.warning(f"Linux 安装 Node.js 失败: {e}")
+            return False
+
+    if system == "darwin":
+        code, output = await _run_cmd("brew", "--version", timeout=15)
+        if code != 0:
+            logger.warning("macOS 未检测到 Homebrew，请手动安装 Node.js")
+            return False
+        code, output = await _run_cmd("brew", "install", "node", timeout=300)
+        if code == 0:
+            logger.info("Node.js 通过 Homebrew 安装成功")
+            return True
+        logger.warning(f"Homebrew install node 失败: {output[:200]}")
+        return False
+
+    if system == "win32":
+        code, output = await _run_cmd("winget", "--version", timeout=15)
+        if code == 0:
+            code, output = await _run_cmd(
+                "winget", "install", "--id", "OpenJS.NodeJS.LTS",
+                "--silent", "--accept-package-agreements",
+                timeout=300,
+            )
+            if code == 0:
+                logger.info("Node.js 通过 winget 安装成功")
+                return True
+            logger.warning(f"winget install nodejs 失败: {output[:200]}")
+            return False
+        code, output = await _run_cmd("choco", "--version", timeout=15)
+        if code == 0:
+            code, output = await _run_cmd(
+                "choco", "install", "nodejs", "-y", "--no-progress",
+                timeout=300,
+            )
+            if code == 0:
+                logger.info("Node.js 通过 Chocolatey 安装成功")
+                return True
+            logger.warning(f"choco install nodejs 失败: {output[:200]}")
+            return False
+        logger.warning("Windows 未检测到 winget 或 Chocolatey，请手动安装 Node.js")
+        return False
+
+    logger.warning(f"不支持的操作系统: {system}")
+    return False
+
+
 async def _install_and_start_flaresolverr() -> bool:
     global _FLARESOLVERR_PROCESS
-    try:
-        code, output = await _run_cmd("node", "--version", timeout=15)
-        if code != 0:
-            logger.warning("Node.js 未安装，无法安装 FlareSolverr")
-            return False
-    except Exception:
-        logger.warning("Node.js 未安装，无法安装 FlareSolverr")
+    node_ok = await _ensure_nodejs()
+    if not node_ok:
         return False
 
     logger.info("正在通过 npx 安装并启动 FlareSolverr...")
