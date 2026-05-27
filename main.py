@@ -120,6 +120,7 @@ CIV_NAMES = {
     "knights_templar": "圣殿骑士团",
     "house_of_lancaster": "兰开斯特王朝",
     "macedonian_dynasty": "马其顿王朝",
+    "tughlaq_dynasty": "图格鲁克王朝",
     "variant_hre": "神圣罗马帝国变体", "variant_abbasid": "阿巴斯变体",
     "variant_rus": "罗斯变体", "variant_chinese": "中国变体",
     "variant_delhi": "德里变体", "variant_mongols": "蒙古变体",

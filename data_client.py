@@ -18,6 +18,7 @@ CIV_NAME_TO_CODE = {
     "knights_templar": "kt",
     "house_of_lancaster": "hl",
     "macedonian_dynasty": "md",
+    "tughlaq_dynasty": "td",
     "阿巴斯王朝": "ab", "英格兰": "en", "中国": "ch", "法兰西": "fr",
     "神圣罗马帝国": "hr", "蒙古": "mo", "罗斯": "ru", "德里苏丹国": "de",
     "奥斯曼": "ot", "马里": "ma", "拜占庭": "by", "日本": "jp",
@@ -27,6 +28,7 @@ CIV_NAME_TO_CODE = {
     "圣殿骑士团": "kt",
     "兰开斯特王朝": "hl",
     "马其顿王朝": "md",
+    "图格鲁克王朝": "td",
 }
 
 CIV_CODE_TO_NAME = {
@@ -40,6 +42,7 @@ CIV_CODE_TO_NAME = {
     "kt": "圣殿骑士团",
     "hl": "兰开斯特王朝",
     "md": "马其顿王朝",
+    "td": "图格鲁克王朝",
     "vf": "法国变体", "vh": "神圣罗马帝国变体", "va": "阿巴斯变体",
     "vr": "罗斯变体", "vc": "中国变体", "vd": "德里变体", "vm": "蒙古变体",
     "vo": "奥斯曼变体", "vj": "日本变体", "vb": "拜占庭变体",
