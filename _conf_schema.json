@@ -25,5 +25,17 @@
         "description": "Score card render width / 评分卡渲染宽度",
         "default": 680,
         "hint": "Suggested 600-800"
+    },
+    "flaresolverr_host": {
+        "type": "string",
+        "description": "FlareSolverr host address / FlareSolverr 主机地址",
+        "default": "localhost",
+        "hint": "Empty or 'localhost' = auto install. Docker users: 'flaresolverr'"
+    },
+    "flaresolverr_port": {
+        "type": "int",
+        "description": "FlareSolverr port / FlareSolverr 端口",
+        "default": 8191,
+        "hint": "Default 8191. Match your FlareSolverr container port"
     }
 }

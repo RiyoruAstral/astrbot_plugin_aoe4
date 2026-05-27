@@ -436,7 +436,10 @@ class AstrBotAOE4Plugin(Star):
         self.config = config or {}
         self.tr = Translator(self.config.get("language", "zh-CN"))
         set_renderer_tr(self.tr)
-        self.client = AoE4WorldClient()
+        self.client = AoE4WorldClient(
+            flaresolverr_host=self.config.get("flaresolverr_host", "localhost"),
+            flaresolverr_port=self.config.get("flaresolverr_port", 8191),
+        )
         self.data = AoE4DataClient(translator=self.tr)
         logger.info(self.tr.t("plugin_loaded"))
 

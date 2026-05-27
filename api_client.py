@@ -17,6 +17,14 @@ AOE4WORLD_API = "https://aoe4world.com/api/v0"
 USER_AGENT = "astrbot_plugin_aoe4/1.1.0 (QQ bot plugin; contact: @RiyoruAstral)"
 
 FLARESOLVERR_URL = "http://localhost:8191/v1"
+
+
+def set_flaresolverr_url(host: str, port: int):
+    global FLARESOLVERR_URL
+    if host:
+        FLARESOLVERR_URL = f"http://{host}:{port}/v1"
+
+
 _FLARESOLVERR_PROCESS: asyncio.subprocess.Process | None = None
 _FLARESOLVERR_LOCK = asyncio.Lock()
 _FLARESOLVERR_ATTEMPTED = False
@@ -303,16 +311,22 @@ async def ensure_flaresolverr() -> bool:
         if await _check_flaresolverr():
             logger.info("FlareSolverr 已在运行")
             return True
+
+        if "localhost" not in FLARESOLVERR_URL and "127.0.0.1" not in FLARESOLVERR_URL:
+            logger.warning(f"FlareSolverr 指向远程地址({FLARESOLVERR_URL})但未就绪，跳过自动安装")
+            return False
+
         logger.info("FlareSolverr 未运行，尝试安装并启动...")
         return await _install_and_start_flaresolverr()
 
 
 class AoE4WorldClient:
-    def __init__(self):
+    def __init__(self, flaresolverr_host: str = "localhost", flaresolverr_port: int = 8191):
         self._session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
         self._summary_limiter = RateLimiter(max_calls=6, period=60.0)
         self._summary_cache: dict[int, dict | None] = {}
+        set_flaresolverr_url(flaresolverr_host, flaresolverr_port)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
