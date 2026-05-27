@@ -3,8 +3,12 @@ import json
 import os
 import platform
 import re
+import shutil
 import sys
+import tarfile
+import tempfile
 import time
+import zipfile
 import xml.etree.ElementTree as ET
 import aiohttp
 from astrbot.api import logger
@@ -152,23 +156,105 @@ async def _ensure_nodejs() -> bool:
     return False
 
 
+FLARESOLVERR_VERSION = "v3.5.0"
+_FLARESOLVERR_CACHE_DIR = os.path.join(
+    os.path.expanduser("~"), ".cache", "astrbot_plugin_aoe4", "flaresolverr"
+)
+_FLARESOLVERR_BINARY_DIR = os.path.join(_FLARESOLVERR_CACHE_DIR, FLARESOLVERR_VERSION)
+
+
 async def _install_and_start_flaresolverr() -> bool:
     global _FLARESOLVERR_PROCESS
-    node_ok = await _ensure_nodejs()
-    if not node_ok:
+
+    system = sys.platform
+    if system.startswith("linux"):
+        arch = "linux_x64"
+        archive_name = "flaresolverr_linux_x64.tar.gz"
+        binary_name = "flaresolverr"
+    elif system == "win32":
+        arch = "windows_x64"
+        archive_name = "flaresolverr_windows_x64.zip"
+        binary_name = "flaresolverr.exe"
+    elif system == "darwin":
+        arch = "darwin_x64"
+        archive_name = "flaresolverr_darwin_x64.tar.gz"
+        binary_name = "flaresolverr"
+    else:
+        logger.warning(f"不支持的操作系统: {system}")
         return False
 
-    logger.info("正在通过 npx 安装并启动 FlareSolverr...")
+    binary_path = os.path.join(_FLARESOLVERR_BINARY_DIR, binary_name)
+    version_file = os.path.join(_FLARESOLVERR_BINARY_DIR, ".version")
+
+    if not os.path.exists(binary_path):
+        logger.info(f"正在下载 FlareSolverr {FLARESOLVERR_VERSION} ({arch})...")
+        os.makedirs(_FLARESOLVERR_CACHE_DIR, exist_ok=True)
+        download_url = (
+            f"https://github.com/FlareSolverr/FlareSolverr/releases/download/"
+            f"{FLARESOLVERR_VERSION}/{archive_name}"
+        )
+        tmp_dir = tempfile.mkdtemp()
+        tmp_archive = os.path.join(tmp_dir, archive_name)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"下载 FlareSolverr 失败: HTTP {resp.status}")
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                        return False
+                    with open(tmp_archive, "wb") as f:
+                        f.write(await resp.read())
+            logger.info("下载完成，正在解压...")
+            extract_tmp = os.path.join(tmp_dir, "extracted")
+            if archive_name.endswith(".zip"):
+                with zipfile.ZipFile(tmp_archive, "r") as zf:
+                    zf.extractall(extract_tmp)
+            else:
+                with tarfile.open(tmp_archive, "r:gz") as tf:
+                    tf.extractall(extract_tmp)
+            items = os.listdir(extract_tmp)
+            if items:
+                src = os.path.join(extract_tmp, items[0])
+            else:
+                logger.warning("解压后目录为空")
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return False
+            if os.path.isdir(src):
+                if os.path.exists(_FLARESOLVERR_BINARY_DIR):
+                    shutil.rmtree(_FLARESOLVERR_BINARY_DIR, ignore_errors=True)
+                shutil.copytree(src, _FLARESOLVERR_BINARY_DIR)
+            else:
+                os.makedirs(_FLARESOLVERR_BINARY_DIR, exist_ok=True)
+                shutil.copy2(src, binary_path)
+            with open(version_file, "w") as f:
+                f.write(FLARESOLVERR_VERSION)
+            logger.info(f"FlareSolverr 已解压到 {_FLARESOLVERR_BINARY_DIR}")
+        except Exception as e:
+            logger.warning(f"下载/解压 FlareSolverr 失败: {e}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return False
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if not os.path.exists(binary_path):
+        logger.warning(f"未找到 FlareSolverr 可执行文件: {binary_path}")
+        return False
+
+    if not system == "win32":
+        os.chmod(binary_path, 0o755)
+
+    logger.info("正在启动 FlareSolverr...")
     try:
         _FLARESOLVERR_PROCESS = await asyncio.create_subprocess_exec(
-            "npx", "flaresolverr",
+            binary_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, "NODE_ENV": "production"},
+            env={**os.environ, "LOG_LEVEL": "info", "PORT": "8191"},
+            cwd=_FLARESOLVERR_BINARY_DIR,
         )
-        logger.info("FlareSolverr 进程已启动，等待服务就绪...")
-        for i in range(30):
-            await asyncio.sleep(2)
+        logger.info("FlareSolverr 进程已启动，等待服务就绪（最长 60s）...")
+        for i in range(60):
+            await asyncio.sleep(1)
             if await _check_flaresolverr():
                 logger.info("FlareSolverr 已就绪")
                 return True
@@ -176,6 +262,8 @@ async def _install_and_start_flaresolverr() -> bool:
                 logger.warning(f"FlareSolverr 进程意外退出，code={_FLARESOLVERR_PROCESS.returncode}")
                 break
         logger.warning("FlareSolverr 启动超时")
+        if _FLARESOLVERR_PROCESS and _FLARESOLVERR_PROCESS.returncode is None:
+            _FLARESOLVERR_PROCESS.kill()
         return False
     except Exception as e:
         logger.warning(f"启动 FlareSolverr 失败: {e}")
