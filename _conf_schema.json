@@ -37,5 +37,14 @@
         "description": "FlareSolverr port / FlareSolverr 端口",
         "default": 8191,
         "hint": "Default 8191. Match your FlareSolverr container port"
+    },
+    "flaresolverr_mode": {
+        "type": "string",
+        "description": "FlareSolverr connection mode / 连接模式",
+        "default": "once",
+        "hint": "never=不连接, once=仅首次尝试(默认), always=每次都尝试",
+        "options": ["never", "once", "always"],
+        "enum": ["never", "once", "always"],
+        "labels": ["从不连接", "仅首次尝试", "每次都尝试"]
     }
 }

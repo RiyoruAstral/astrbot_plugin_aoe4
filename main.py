@@ -10,7 +10,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
 from astrbot.api.message_components import At, Image
-from api_client import AoE4WorldClient
+from api_client import AoE4WorldClient, check_flaresolverr_connection
 from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
@@ -186,6 +186,7 @@ HELP_TEXT = (
     "  /aoe4 game <比赛ID>     通过ID查比赛详情\n"
     "                       加 -score 评分图  -gid/-pid 显示ID\n"
     "  /aoe4 matchup [模式]     查询文明对战胜率表\n"
+    "  /aoe4 checkfs            测试 FlareSolverr 连接\n"
     "━━━━━━━━━━━━━━━━\n"
     "💡 通用标志:  -gid 显示对局ID  -pid 显示Profile ID"
 )
@@ -439,6 +440,7 @@ class AstrBotAOE4Plugin(Star):
         self.client = AoE4WorldClient(
             flaresolverr_host=self.config.get("flaresolverr_host", "localhost"),
             flaresolverr_port=self.config.get("flaresolverr_port", 8191),
+            flaresolverr_mode=self.config.get("flaresolverr_mode", "once"),
         )
         self.data = AoE4DataClient(translator=self.tr)
         logger.info(self.tr.t("plugin_loaded"))
@@ -508,6 +510,7 @@ class AstrBotAOE4Plugin(Star):
             "mecompare": self._handle_mecompare,
             "game": self._handle_game,
             "matchup": self._handle_matchup,
+            "checkfs": self._handle_checkfs,
         }
 
         handler = method_map.get(sub)
@@ -1131,6 +1134,7 @@ class AstrBotAOE4Plugin(Star):
                 f"  {t('help_patch')}\n"
                 f"  {t('help_game')}\n"
                 f"  {t('help_matchup')}\n"
+                f"  {t('help_checkfs')}\n"
                 "━━━━━━━━━━━━━━━━\n"
                 f"{t('help_general_hint')}"
             )
@@ -1263,6 +1267,20 @@ class AstrBotAOE4Plugin(Star):
                 f"{i:>2}. {country}{name}\n"
                 f"    {rank_level} | {rating}分 | 胜率{wr}%{streak_str}"
             )
+        yield event.plain_result("\n".join(lines))
+
+    async def _handle_checkfs(self, event: AstrMessageEvent):
+        ok, msg = await check_flaresolverr_connection()
+        icon = "✅" if ok else "❌"
+        host = self.config.get("flaresolverr_host", "localhost")
+        port = self.config.get("flaresolverr_port", 8191)
+        mode = self.config.get("flaresolverr_mode", "once")
+        lines = [
+            f"{icon} FlareSolverr 连接测试",
+            f"  地址: {host}:{port}",
+            f"  模式: {mode}",
+            f"  结果: {msg}",
+        ]
         yield event.plain_result("\n".join(lines))
 
 # ─── 玩家搜索 ────────────────────────────────

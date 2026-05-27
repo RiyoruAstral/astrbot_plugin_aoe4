@@ -25,6 +25,15 @@ def set_flaresolverr_url(host: str, port: int):
         FLARESOLVERR_URL = f"http://{host}:{port}/v1"
 
 
+_FLARESOLVERR_MODE = "once"
+
+
+def set_flaresolverr_mode(mode: str):
+    global _FLARESOLVERR_MODE
+    if mode in ("never", "once", "always"):
+        _FLARESOLVERR_MODE = mode
+
+
 _FLARESOLVERR_PROCESS: asyncio.subprocess.Process | None = None
 _FLARESOLVERR_LOCK = asyncio.Lock()
 _FLARESOLVERR_ATTEMPTED = False
@@ -300,8 +309,32 @@ async def _install_and_start_flaresolverr() -> bool:
         return False
 
 
+async def check_flaresolverr_connection() -> tuple[bool, str]:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(FLARESOLVERR_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    msg = body.get("msg", body.get("msg", "ready"))
+                    return True, f"已连接 ({msg})"
+                return False, f"响应异常: HTTP {resp.status}"
+    except aiohttp.ClientConnectorError:
+        return False, f"连接失败 ({FLARESOLVERR_URL} 无响应)"
+    except asyncio.TimeoutError:
+        return False, "连接超时"
+    except Exception as e:
+        return False, f"错误: {e}"
+
+
 async def ensure_flaresolverr() -> bool:
     global _FLARESOLVERR_ATTEMPTED
+
+    if _FLARESOLVERR_MODE == "never":
+        return False
+
+    if _FLARESOLVERR_MODE == "always":
+        _FLARESOLVERR_ATTEMPTED = False
+
     if _FLARESOLVERR_ATTEMPTED:
         return _FLARESOLVERR_PROCESS is not None and _FLARESOLVERR_PROCESS.returncode is None
     async with _FLARESOLVERR_LOCK:
@@ -321,12 +354,13 @@ async def ensure_flaresolverr() -> bool:
 
 
 class AoE4WorldClient:
-    def __init__(self, flaresolverr_host: str = "localhost", flaresolverr_port: int = 8191):
+    def __init__(self, flaresolverr_host: str = "localhost", flaresolverr_port: int = 8191, flaresolverr_mode: str = "once"):
         self._session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
         self._summary_limiter = RateLimiter(max_calls=6, period=60.0)
         self._summary_cache: dict[int, dict | None] = {}
         set_flaresolverr_url(flaresolverr_host, flaresolverr_port)
+        set_flaresolverr_mode(flaresolverr_mode)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
