@@ -761,10 +761,11 @@ class AstrBotAOE4Plugin(Star):
 
     async def _handle_recent(self, event: AstrMessageEvent):
         text = event.message_str.strip()
+        use_id = " -id " in text or text.endswith(" -id") or text.endswith(" --id")
         text, show_gid, show_pid = _parse_display_flags(text)
-        use_id = text.endswith(" -id") or text.endswith(" --id")
         if use_id:
-            text = text.rsplit(" -id", 1)[0].rsplit(" --id", 1)[0].strip()
+            text = text.replace(" -id ", " ").replace(" --id ", " ").strip()
+            text = text.removesuffix(" -id").removesuffix(" --id").strip()
         at_comps = self._get_at_mentions(event)
         parts = text.split()
         raw_args = parts[2:] if len(parts) >= 2 else []
@@ -850,7 +851,8 @@ class AstrBotAOE4Plugin(Star):
                         pd = p["player"]
                         n = f"{_flag(pd.get('country',''))}{pd.get('name','?')}"
                         civ_label = self._civ_name(pd.get("civilization", ""))
-                        entry = f"{n}({civ_label})"
+                        pid_suffix = f" [PID:{pd['profile_id']}]" if show_pid and pd.get('profile_id') else ""
+                        entry = f"{n}({civ_label}){pid_suffix}"
                         if pd["profile_id"] == pid:
                             continue
                         if idx == my_team_idx:
@@ -1274,7 +1276,9 @@ class AstrBotAOE4Plugin(Star):
 # ─── 天梯排行榜 ──────────────────────────────
 
     async def _handle_leaderboard(self, event: AstrMessageEvent):
-        parts = event.message_str.strip().split()
+        text = event.message_str.strip()
+        text, show_pid = (text[:-4].strip(), True) if text.endswith(" -pid") else (text, False)
+        parts = text.split()
         mode_alias = parts[2].lower() if len(parts) >= 3 else "solo"
         if mode_alias not in LEADERBOARD_KEYS:
             yield event.plain_result(
@@ -1306,8 +1310,9 @@ class AstrBotAOE4Plugin(Star):
             streak = p.get("streak", 0)
             streak_str = f" 🔥{streak}" if streak and streak > 0 else (
                 f" 💧{abs(streak)}" if streak and streak < 0 else "")
+            pid_suffix = f" [PID:{p['profile_id']}]" if show_pid and p.get('profile_id') else ""
             lines.append(
-                f"{i:>2}. {country}{name}\n"
+                f"{i:>2}. {country}{name}{pid_suffix}\n"
                 f"    {rank_level} | {rating}分 | 胜率{wr}%{streak_str}"
             )
         yield event.plain_result("\n".join(lines))
@@ -1365,10 +1370,14 @@ class AstrBotAOE4Plugin(Star):
         parts = event.message_str.strip().split(maxsplit=2)
         query = parts[2].strip().lower() if len(parts) >= 3 else ""
         if not query:
-            all_civs = "\n".join(
-                f"  {self._civ_name(code)}" for code in sorted(self.tr.all_civs().keys())
-            )
-            yield event.plain_result(f"🏛️ 所有文明:\n{all_civs}\n\n使用 /aoe4 civ <文明名> 查看详情")
+            seen = set()
+            civ_lines = []
+            for code in sorted(self.tr.all_civs().keys()):
+                name = self._civ_name(code)
+                if name not in seen:
+                    seen.add(name)
+                    civ_lines.append(f"  {name}")
+            yield event.plain_result(f"🏛️ 所有文明:\n" + "\n".join(civ_lines) + "\n\n使用 /aoe4 civ <文明名> 查看详情")
             return
         code = CIV_NAME_TO_CODE.get(query)
         if not code:
@@ -1454,12 +1463,12 @@ class AstrBotAOE4Plugin(Star):
             return
         lines = ["📰 AoE4 最近版本更新\n━━━━━━━━━━━━━━━━"]
         for p in patches:
-            lines.append(f"\n📅 {p['date']}")
-            lines.append(f"  {p['title']}")
-            if p['description']:
-                lines.append(f"  {p['description']}")
-            if p.get('url'):
-                lines.append(f"  🔗 {p['url']}")
+            lines.append(f"\n📅 {p.get('date', p.get('pub_date', '?'))}")
+            lines.append(f"  {p.get('title', '?')}")
+            if p.get('description'):
+                lines.append(f"  {p.get('description')}")
+            if p.get('url') or p.get('link'):
+                lines.append(f"  🔗 {p.get('url') or p.get('link')}")
         yield event.plain_result("\n".join(lines))
 
 # ─── 克制关系 ─────────────────────────────────

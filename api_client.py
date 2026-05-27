@@ -569,21 +569,33 @@ class AoE4WorldClient:
             desc = item.findtext("description", "")
             pub_date = item.findtext("pubDate", "")
             if title:
+                date_str = AoE4WorldClient._format_rss_date(pub_date)
                 patches.append({
                     "title": title,
                     "link": link,
                     "description": desc,
                     "pub_date": pub_date,
+                    "date": date_str,
                     "version": title.split()[0] if title else "",
                 })
             if len(patches) >= limit:
                 break
         return patches
 
+    @staticmethod
+    def _format_rss_date(pub_date: str) -> str:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return pub_date[:16] if pub_date else ""
+
 
 FALLBACK_PATCHES = [
     {
         "title": "10.1.576 ",
+        "date": "2025-05-08",
         "link": "https://www.ageofempires.com/news/aoe4-pup-10-1-576/",
         "description": "Season Ten Anniversary Update brings a variety of",
         "pub_date": "Thu, 08 May 2025 00:00:00 GMT",
@@ -591,6 +603,7 @@ FALLBACK_PATCHES = [
     },
     {
         "title": "10.0.538 Season 10",
+        "date": "2025-03-28",
         "link": "https://www.ageofempires.com/news/aoe4-season-10/",
         "description": "Season 10 Anniversary Update! New Civilizations:",
         "pub_date": "Fri, 28 Mar 2025 00:00:00 GMT",
