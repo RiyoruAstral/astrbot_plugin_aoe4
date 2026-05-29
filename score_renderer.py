@@ -13,11 +13,17 @@ FONT_CACHE_PATH = os.path.join(FONT_CACHE_DIR, "notosanssc.woff2")
 _FONT_READY = False
 
 TR = None
+_CHROMIUM_DOWNLOAD_HOST = ""
 
 
 def set_translator(tr):
     global TR
     TR = tr
+
+
+def set_chromium_download_host(url: str):
+    global _CHROMIUM_DOWNLOAD_HOST
+    _CHROMIUM_DOWNLOAD_HOST = url
 
 
 def _s(key: str, **kwargs) -> str:
@@ -699,10 +705,14 @@ async def _install_chromium() -> bool:
                 logger.warning(f"[ScoreRender] 清理目录失败: {d}: {e}")
 
     env = os.environ.copy()
-    for mirror in [
+    mirror_list = []
+    if _CHROMIUM_DOWNLOAD_HOST:
+        mirror_list.append(_CHROMIUM_DOWNLOAD_HOST)
+    mirror_list.extend([
         "https://playwright.azureedge.net/",
         None,
-    ]:
+    ])
+    for mirror in mirror_list:
         if mirror:
             env["PLAYWRIGHT_DOWNLOAD_HOST"] = mirror
             label = f"镜像源 {mirror}"

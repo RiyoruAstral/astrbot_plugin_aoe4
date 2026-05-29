@@ -15,42 +15,12 @@ from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser
+    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser, set_chromium_download_host
     HAS_RENDERER = True
 except ImportError:
-    import subprocess
-    logger.warning("playwright 未安装，尝试自动安装（跳过依赖检查）...")
-    try:
-        PIP_MIRROR = "-i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "playwright==1.48.0", "--no-deps", "-q", PIP_MIRROR],
-            capture_output=True, timeout=120,
-        )
-        playwright_ok = result.returncode == 0
-        deps_ok = False
-        if playwright_ok:
-            deps = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "pyee", "greenlet", "-q", PIP_MIRROR],
-                capture_output=True, timeout=120,
-            )
-            deps_ok = deps.returncode == 0
-        if playwright_ok and deps_ok:
-            logger.info("playwright 及核心依赖安装成功，重新加载渲染模块...")
-            from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser
-            HAS_RENDERER = True
-        else:
-            if not playwright_ok:
-                detail = result.stderr.decode(errors="ignore")[:200] if result.stderr else ""
-                logger.warning(f"playwright 安装失败: {detail}")
-            if playwright_ok and not deps_ok:
-                detail = deps.stderr.decode(errors="ignore")[:200] if deps.stderr else ""
-                logger.warning(f"核心依赖 (pyee, greenlet) 安装失败: {detail}")
-            HAS_RENDERER = False
-            def set_renderer_tr(tr): pass
-    except Exception as e:
-        logger.warning(f"playwright 自动安装异常: {e}")
-        HAS_RENDERER = False
-        def set_renderer_tr(tr): pass
+    HAS_RENDERER = False
+    def set_renderer_tr(tr): pass
+    def set_chromium_download_host(url: str): pass
 
 from i18n import Translator
 
@@ -191,18 +161,18 @@ HELP_TEXT = (
     "  /aoe4 bind <游戏ID>      通过名字搜索绑定\n"
     "  /aoe4 bindid <ID>        通过Profile ID直接绑定\n"
     "  /aoe4 unbind              解绑账号\n"
-    "  /aoe4 me                  查看绑定信息（加 -gid 显示最近GID）\n"
+    "  /aoe4 me                  查看绑定信息（加 -civ 文明胜率，-gid 最近GID）\n"
     "━━━━━━━━━━━━━━━━\n"
     "📊 战绩查询\n"
     "  /aoe4 profile [ID]  @/-id  查询玩家资料（加 -gid 显示最近GID）\n"
     "  /aoe4 recent [ID] [N] @/-id  最近对局记录（加 -gid/-pid 显示ID）\n"
-    "  /aoe4 last [ID] @/-id      上一局详情\n"
-    "                       加 -score 评分图  -gid/-pid 显示ID\n"
+    "  /aoe4 last [ID] @/-id      上一局详情（加 -n N 指定第N局）\n"
+    "                       加 -score 评分图  -force 强制刷新  -gid/-pid 显示ID\n"
     "  /aoe4 compare <A> <B> @/-id  玩家对比\n"
     "  /aoe4 mecompare <A> @/-id  自己 vs 指定玩家\n"
     "━━━━━━━━━━━━━━━━\n"
     "🏆 天梯与搜索\n"
-    "  /aoe4 leaderboard [模式]  排行榜\n"
+    "  /aoe4 leaderboard [模式]  排行榜（加 me 查自己排名）\n"
     "  /aoe4 search <关键词>     搜索玩家\n"
     "━━━━━━━━━━━━━━━━\n"
     "📖 游戏数据\n"
@@ -215,7 +185,7 @@ HELP_TEXT = (
     "📰 版本信息\n"
     "  /aoe4 patch             查看最近版本更新\n"
     "  /aoe4 game <比赛ID>     通过ID查比赛详情\n"
-    "                       加 -score 评分图  -gid/-pid 显示ID\n"
+    "                       加 -score 评分图  -force 强制刷新  -gid/-pid 显示ID\n"
     "  /aoe4 matchup [模式]     查询文明对战胜率表\n"
     "  /aoe4 checkfs            测试 FlareSolverr 连接\n"
     "━━━━━━━━━━━━━━━━\n"
@@ -253,7 +223,11 @@ SUBCOMMAND_HELP = {
         "📌 /aoe4 me\n"
         "查看当前绑定的账号信息。\n\n"
         "说明:\n"
-        "  显示绑定账号的详细排位数据。"
+        "  显示绑定账号的详细排位数据。\n"
+        "  加 -civ 查看最近文明胜率分布。\n\n"
+        "示例:\n"
+        "  /aoe4 me\n"
+        "  /aoe4 me -civ"
     ),
     "profile": (
         "📊 /aoe4 profile [游戏ID]\n"
@@ -287,12 +261,14 @@ SUBCOMMAND_HELP = {
         "  /aoe4 recent @用户"
     ),
     "last": (
-        "📊 /aoe4 last [游戏ID] [-score]\n"
-        "查询上一局详细数据。\n\n"
+        "📊 /aoe4 last [游戏ID] [-score] [-n N] [-force]\n"
+        "查询上一局（或指定第N局）详细数据。\n\n"
         "参数:\n"
         "  [游戏ID]  可选，不填则查询已绑定账号\n"
         "  支持 @用户 和 -id 标志（数字Profile ID）\n"
-        "  -score    可选，显示所有玩家的详细评分对比\n\n"
+        "  -score    可选，显示所有玩家的详细评分对比\n"
+        "  -n N      可选，指定第N局（1=最近一局），如 -n 3\n"
+        "  -force    可选，强制刷新评分缓存\n\n"
         "返回:\n"
         "  基础信息 + 经济/军事/科技评分 + 双方阵容\n"
         "  +score 时额外显示: 评分、资源支出、击杀/阵亡/K/D、建筑、科技、APM\n\n"
@@ -300,9 +276,12 @@ SUBCOMMAND_HELP = {
         "  /aoe4 last\n"
         "  /aoe4 last beasty\n"
         "  /aoe4 last -score\n"
+        "  /aoe4 last -n 3\n"
         "  /aoe4 last beasty -score\n"
         "  /aoe4 last 17594316 -id -score\n"
-        "  /aoe4 last @用户 -score"
+        "  /aoe4 last @用户 -score\n"
+        "  /aoe4 last beasty -score -force\n"
+        "  /aoe4 last beasty -n 3 -score"
     ),
     "leaderboard": (
         "🏆 /aoe4 leaderboard [模式] [数量]\n"
@@ -311,9 +290,13 @@ SUBCOMMAND_HELP = {
         "  [模式]  可选，默认 solo\n"
         "    solo/1v1  |  team\n"
         "  [数量]  可选，5~30，默认10\n\n"
+        "特殊用法:\n"
+        "  /aoe4 leaderboard me [模式]  查询自己的排名位置\n\n"
         "示例:\n"
         "  /aoe4 leaderboard\n"
-        "  /aoe4 leaderboard team 10"
+        "  /aoe4 leaderboard team 10\n"
+        "  /aoe4 leaderboard me\n"
+        "  /aoe4 leaderboard me solo"
     ),
     "rank": (
         "🏆 /aoe4 rank [模式] [数量]\n"
@@ -435,17 +418,19 @@ SUBCOMMAND_HELP = {
         "  /aoe4 mecompare @用户"
     ),
     "game": (
-        "📊 /aoe4 game <比赛ID> [-score]\n"
+        "📊 /aoe4 game <比赛ID> [-score] [-force]\n"
         "通过比赛ID查询对局数据。\n\n"
         "参数:\n"
         "  <比赛ID>   数字比赛ID（如 234460841）\n"
-        "  -score     可选，显示所有玩家的详细评分对比\n\n"
+        "  -score     可选，显示所有玩家的详细评分对比\n"
+        "  -force     可选，强制刷新评分缓存\n\n"
         "返回:\n"
         "  对局基础信息（地图、模式、时长等）+ 双方阵容\n"
         "  +score 时额外显示: 评分、资源支出、击杀/K/D、建筑、科技、APM\n\n"
         "示例:\n"
         "  /aoe4 game 234460841\n"
-        "  /aoe4 game 234460841 -score"
+        "  /aoe4 game 234460841 -score\n"
+        "  /aoe4 game 234460841 -score -force"
     ),
     "matchup": (
         "📊 /aoe4 matchup [模式]\n"
@@ -469,16 +454,74 @@ class AstrBotAOE4Plugin(Star):
         super().__init__(context)
         self.config = config or {}
         self.tr = Translator(self.config.get("language", "zh-CN"))
-        set_renderer_tr(self.tr)
+        self._init_renderer()
+        if HAS_RENDERER:
+            set_renderer_tr(self.tr)
         self.client = AoE4WorldClient(
             flaresolverr_host=self.config.get("flaresolverr_host", "localhost"),
             flaresolverr_port=self.config.get("flaresolverr_port", 8191),
             flaresolverr_mode=self.config.get("flaresolverr_mode", "once"),
+            summary_cache_ttl=self.config.get("summary_cache_ttl", 120),
+            timeout_default=self.config.get("api_timeout_default", 15),
+            timeout_leaderboard=self.config.get("api_timeout_leaderboard", 30),
         )
-        self.data = AoE4DataClient(translator=self.tr)
+        chrom_host = self.config.get("chromium_download_host", "")
+        if chrom_host:
+            set_chromium_download_host(chrom_host)
+        self.data = AoE4DataClient(
+            translator=self.tr,
+            cache_ttl=self.config.get("data_cache_ttl", 86400),
+        )
+        self._myciv_games = max(2, min(50, self.config.get("myciv_analysis_games", 5)))
         logger.info(self.tr.t("plugin_loaded"))
         if HAS_RENDERER:
             asyncio.create_task(self._ensure_renderer_ready())
+
+    def _init_renderer(self):
+        global HAS_RENDERER
+        if HAS_RENDERER:
+            return
+        import subprocess
+        pypi_mirror = self.config.get("pypi_mirror", "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple")
+        pip_arg = f"-i {pypi_mirror}" if pypi_mirror else ""
+        logger.warning("playwright 未安装，尝试自动安装（跳过依赖检查）...")
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "playwright==1.48.0", "--no-deps", "-q"]
+            if pip_arg:
+                cmd.append(pip_arg)
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            playwright_ok = result.returncode == 0
+            deps_ok = False
+            if playwright_ok:
+                deps_cmd = [sys.executable, "-m", "pip", "install", "pyee", "greenlet", "-q"]
+                if pip_arg:
+                    deps_cmd.append(pip_arg)
+                deps = subprocess.run(deps_cmd, capture_output=True, timeout=120)
+                deps_ok = deps.returncode == 0
+            if playwright_ok and deps_ok:
+                logger.info("playwright 及核心依赖安装成功，重新加载渲染模块...")
+                import importlib
+                mod = importlib.import_module("score_renderer")
+                globals().update(
+                    generate_score_html=mod.generate_score_html,
+                    generate_analysis_html=mod.generate_analysis_html,
+                    generate_matchup_html=mod.generate_matchup_html,
+                    render_html_to_image=mod.render_html_to_image,
+                    close_renderer=mod.close_browser,
+                    set_renderer_tr=mod.set_translator,
+                    ensure_browser=mod.ensure_browser,
+                    set_chromium_download_host=mod.set_chromium_download_host,
+                )
+                HAS_RENDERER = True
+            else:
+                if not playwright_ok:
+                    detail = result.stderr.decode(errors="ignore")[:200] if result.stderr else ""
+                    logger.warning(f"playwright 安装失败: {detail}")
+                if playwright_ok and not deps_ok:
+                    detail = deps.stderr.decode(errors="ignore")[:200] if deps.stderr else ""
+                    logger.warning(f"核心依赖 (pyee, greenlet) 安装失败: {detail}")
+        except Exception as e:
+            logger.warning(f"playwright 自动安装异常: {e}")
 
     async def _ensure_renderer_ready(self):
         try:
@@ -676,16 +719,62 @@ class AstrBotAOE4Plugin(Star):
 
     async def _handle_me(self, event: AstrMessageEvent):
         text = event.message_str.strip()
-        _, show_gid, _ = _parse_display_flags(text)
+        text, show_gid, _ = _parse_display_flags(text)
+        use_civ = text.endswith(" -civ") or text.endswith(" --civ")
+        if use_civ:
+            text = text.rsplit(" -civ", 1)[0].rsplit(" --civ", 1)[0].strip()
         sender_id = event.get_sender_id()
         bound = storage.get_bound(sender_id)
         if not bound:
             yield event.plain_result("你还没有绑定游戏账号，请使用 /aoe4 bind <游戏ID> 绑定")
             return
-        player = await self.client.get_player(bound["profile_id"])
+        pid = bound["profile_id"]
+
+        if use_civ:
+            games = await self.client.get_player_games(pid, self._myciv_games)
+            if not games:
+                yield event.plain_result("最近没有对局数据，无法分析文明胜率")
+                return
+            civ_stats: dict[str, dict] = {}
+            for g in games:
+                for team in g.get("teams", []):
+                    for p in team:
+                        if p.get("profile_id") == pid:
+                            civ_key = p.get("civilization", "unknown")
+                            result = p.get("result", "unknown")
+                            rd = p.get("rating_diff", 0)
+                            if civ_key not in civ_stats:
+                                civ_stats[civ_key] = {"wins": 0, "games": 0, "total_rd": 0}
+                            civ_stats[civ_key]["games"] += 1
+                            if result == "win":
+                                civ_stats[civ_key]["wins"] += 1
+                            civ_stats[civ_key]["total_rd"] += rd or 0
+                            break
+            if not civ_stats:
+                yield event.plain_result("最近对局中未找到你的数据")
+                return
+            sorted_civs = sorted(civ_stats.items(), key=lambda x: -x[1]["games"])
+            lines = [f"📊 {bound['player_name']} 最近 {self._myciv_games} 场文明胜率"]
+            lines.append("")
+            for civ_key, stats in sorted_civs:
+                civ_name = self._civ_name(civ_key)
+                wr = stats["wins"] / stats["games"] * 100 if stats["games"] else 0
+                avg_rd = stats["total_rd"] / stats["games"] if stats["games"] else 0
+                bar_len = max(1, int(wr / 10))
+                bar = "█" * bar_len + "░" * (10 - bar_len)
+                rd_str = f" | 均分差 {avg_rd:+.1f}" if avg_rd != 0 else ""
+                lines.append(
+                    f"  {civ_name}\n"
+                    f"    {bar} {stats['wins']}/{stats['games']} "
+                    f"({wr:.0f}%){rd_str}"
+                )
+            yield event.plain_result("\n".join(lines))
+            return
+
+        player = await self.client.get_player(pid)
         if not player:
             yield event.plain_result(
-                f"绑定的账号: {bound['player_name']} (ID: {bound['profile_id']})\n"
+                f"绑定的账号: {bound['player_name']} (ID: {pid})\n"
                 "数据查询失败，请稍后重试"
             )
             return
@@ -871,7 +960,15 @@ class AstrBotAOE4Plugin(Star):
                     lines.append(f"   对手: {', '.join(opponents)}")
             else:
                 lines.append(f"{i}. {map_name} {kind} - 无法获取详细数据")
-        yield event.plain_result("\n".join(lines))
+        if len(lines) <= 7:
+            yield event.plain_result("\n".join(lines))
+        else:
+            header = lines[0]
+            game_lines = lines[1:]
+            for start_idx in range(0, len(game_lines), 5):
+                chunk = [header] if start_idx == 0 else [f"（第 {start_idx//5 + 2} 页）"]
+                chunk.extend(game_lines[start_idx:start_idx + 5])
+                yield event.plain_result("\n".join(chunk))
 
 # ─── 上一局详情 ──────────────────────────────
 
@@ -884,6 +981,17 @@ class AstrBotAOE4Plugin(Star):
         use_id = text.endswith(" -id") or text.endswith(" --id")
         if use_id:
             text = text.rsplit(" -id", 1)[0].rsplit(" --id", 1)[0].strip()
+        use_force = text.endswith(" -force") or text.endswith(" --force")
+        if use_force:
+            text = text.rsplit(" -force", 1)[0].rsplit(" --force", 1)[0].strip()
+        import re as _re
+        m = _re.search(r'\s+-n(\d+)$', text)
+        if not m:
+            m = _re.search(r'\s+-n\s+(\d+)\s*$', text)
+        game_index = 1
+        if m:
+            game_index = max(1, int(m.group(1)))
+            text = text[:m.start()].strip()
         at_comps = self._get_at_mentions(event)
         parts = text.split(maxsplit=2)
         raw_name = parts[2] if len(parts) >= 3 else None
@@ -895,10 +1003,23 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(err)
             return
         pid = player["profile_id"]
-        game = await self.client.get_player_last_game(pid, include_stats=True)
-        if not game:
-            yield event.plain_result("未找到上一局对局数据")
-            return
+
+        if game_index > 1:
+            games = await self.client.get_player_games(pid, game_index)
+            if not games or len(games) < game_index:
+                yield event.plain_result(f"未找到第 {game_index} 局对局数据（最近只有 {len(games) if games else 0} 局）")
+                return
+            game = games[-1]
+            game = await self.client.get_game_by_id(game["game_id"])
+            if not game:
+                yield event.plain_result(f"第 {game_index} 局详情获取失败")
+                return
+        else:
+            game = await self.client.get_player_last_game(pid, include_stats=True)
+            if not game:
+                yield event.plain_result("未找到上一局对局数据")
+                return
+
         game_id = game.get("game_id")
         map_name = game.get("map", "未知地图")
         kind = self._mode_name(game.get("kind", ""))
@@ -907,7 +1028,7 @@ class AstrBotAOE4Plugin(Star):
         id_suffix = self._build_id_suffix(show_gid, show_pid, game_id, pid)
 
         if use_score:
-            summary = await self.client.get_game_summary_by_id(game_id, profile_id=pid)
+            summary = await self.client.get_game_summary_by_id(game_id, profile_id=pid, force=use_force)
             if summary and summary.get("players"):
                 img_result = await self._render_score_image(event, summary["players"], map_name, kind, dur, time_ago)
                 if img_result:
@@ -1077,6 +1198,9 @@ class AstrBotAOE4Plugin(Star):
         use_score = text.endswith(" -score") or text.endswith(" --score")
         if use_score:
             text = text.rsplit(" -score", 1)[0].rsplit(" --score", 1)[0].strip()
+        use_force = text.endswith(" -force") or text.endswith(" --force")
+        if use_force:
+            text = text.rsplit(" -force", 1)[0].rsplit(" --force", 1)[0].strip()
         parts = text.split(maxsplit=2)
         if len(parts) < 3:
             yield event.plain_result("用法: /aoe4 game <比赛ID> [-score] [-gid] [-pid]")
@@ -1104,7 +1228,7 @@ class AstrBotAOE4Plugin(Star):
                         break
                 if any_pid is not None:
                     break
-            summary = await self.client.get_game_summary_by_id(game_id, profile_id=any_pid)
+            summary = await self.client.get_game_summary_by_id(game_id, profile_id=any_pid, force=use_force)
             if summary and summary.get("players"):
                 img_result = await self._render_score_image(event, summary["players"], map_name, kind, dur, time_ago)
                 if img_result:
@@ -1286,7 +1410,71 @@ class AstrBotAOE4Plugin(Star):
         text = event.message_str.strip()
         text, show_pid = (text[:-4].strip(), True) if text.endswith(" -pid") else (text, False)
         parts = text.split()
-        mode_alias = parts[2].lower() if len(parts) >= 3 else "solo"
+        raw_arg = parts[2].lower() if len(parts) >= 3 else "solo"
+
+        if raw_arg == "me":
+            sender_id = event.get_sender_id()
+            bound = storage.get_bound(sender_id)
+            if not bound:
+                yield event.plain_result("请先绑定账号: /aoe4 bind <游戏ID>")
+                return
+            mode_alias = parts[3].lower() if len(parts) >= 4 else "solo"
+            if mode_alias not in LEADERBOARD_KEYS:
+                yield event.plain_result(f"不支持的模式: {mode_alias}\n支持 solo/1v1 或 team")
+                return
+            lb_key = LEADERBOARD_KEYS[mode_alias]
+            player_data = await self.client.get_player(bound["profile_id"])
+            if not player_data:
+                yield event.plain_result("你的数据查询失败")
+                return
+            mode_info = player_data.get("modes", {}).get(lb_key, {})
+            my_rating = mode_info.get("rating")
+            if not my_rating:
+                yield event.plain_result(f"你在 {self._mode_name(lb_key)} 模式暂无排位分数")
+                return
+            rank = 0
+            page = 1
+            found = False
+            while page < 50:
+                batch = await self.client.get_leaderboard(lb_key, 200, page=page)
+                if not batch:
+                    break
+                for i, p in enumerate(batch, 1):
+                    if p.get("profile_id") == bound["profile_id"]:
+                        rank = (page - 1) * 200 + i
+                        found = True
+                        break
+                if found:
+                    break
+                page += 1
+            label = self._mode_name(lb_key)
+            rank_display = self._fmt_rank(mode_info.get("rank_level"))
+            wr = mode_info.get("win_rate", 0)
+            games = mode_info.get("games_count", 0)
+            if found:
+                prefix = f"🏆 {label} | 你排名第 {rank}"
+                context_start = max(0, rank - 3)
+                context_count = min(page * 200, context_start + 7) - context_start
+                context_batch = await self.client.get_leaderboard(lb_key, context_count, offset=context_start)
+                lines = [prefix, f"  {rank_display} | {my_rating}分 | 胜率{wr}% | {games}场"]
+                if context_batch:
+                    lines.append("")
+                    lines.append(f"  附近排名:")
+                    for i, cp in enumerate(context_batch, context_start + 1):
+                        marker = "← 你" if cp.get("profile_id") == bound["profile_id"] else ""
+                        lines.append(
+                            f"  #{i} {_flag(cp.get('country',''))}{cp.get('name','?')} "
+                            f"| {cp.get('rating','N/A')}分{marker}"
+                        )
+            else:
+                lines = [
+                    f"🏆 {label} | 未在前 10000 名中找到你",
+                    f"  {rank_display} | {my_rating}分 | 胜率{wr}% | {games}场",
+                ]
+            yield event.plain_result("\n".join(lines))
+            return
+
+        mode_alias = raw_arg
         if mode_alias not in LEADERBOARD_KEYS:
             yield event.plain_result(
                 f"不支持的模式: {mode_alias}\n"

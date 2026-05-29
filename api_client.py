@@ -354,11 +354,16 @@ async def ensure_flaresolverr() -> bool:
 
 
 class AoE4WorldClient:
-    def __init__(self, flaresolverr_host: str = "localhost", flaresolverr_port: int = 8191, flaresolverr_mode: str = "once"):
+
+    def __init__(self, flaresolverr_host: str = "localhost", flaresolverr_port: int = 8191, flaresolverr_mode: str = "once", summary_cache_ttl: int = 120, timeout_default: int = 15, timeout_leaderboard: int = 30):
         self._session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
         self._summary_limiter = RateLimiter(max_calls=6, period=60.0)
         self._summary_cache: dict[int, dict | None] = {}
+        self._summary_cache_ttl: dict[int, float] = {}
+        self._summary_cache_fail_ttl = summary_cache_ttl
+        self._timeout_default = timeout_default
+        self._timeout_leaderboard = timeout_leaderboard
         set_flaresolverr_url(flaresolverr_host, flaresolverr_port)
         set_flaresolverr_mode(flaresolverr_mode)
 
@@ -366,14 +371,14 @@ class AoE4WorldClient:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 headers={"User-Agent": USER_AGENT},
-                timeout=aiohttp.ClientTimeout(total=TIMEOUT_DEFAULT),
+                timeout=aiohttp.ClientTimeout(total=self._timeout_default),
             )
         return self._session
 
     async def _request(self, path: str, params: dict | None = None, timeout: int | None = None) -> dict | None:
         session = await self._get_session()
         try:
-            t = aiohttp.ClientTimeout(total=timeout or TIMEOUT_DEFAULT)
+            t = aiohttp.ClientTimeout(total=timeout or self._timeout_default)
             async with session.get(f"{AOE4WORLD_API}{path}", params=params, timeout=t) as resp:
                 if resp.status != 200:
                     logger.warning(f"AoE4 World API 返回 {resp.status}: {path}")
@@ -412,15 +417,25 @@ class AoE4WorldClient:
     async def get_game_by_id(self, game_id: int) -> dict | None:
         return await self._request(f"/games/{game_id}")
 
-    async def get_game_summary_by_id(self, game_id: int, profile_id: int | None = None) -> dict | None:
-        if game_id in self._summary_cache:
-            logger.debug(f"Game summary 命中缓存: {game_id}")
-            return self._summary_cache[game_id]
+    async def get_game_summary_by_id(self, game_id: int, profile_id: int | None = None, force: bool = False) -> dict | None:
+        if not force and game_id in self._summary_cache:
+            cached = self._summary_cache[game_id]
+            if cached is not None:
+                logger.debug(f"Game summary 命中缓存: {game_id}")
+                return cached
+            elapsed = time.monotonic() - self._summary_cache_ttl.get(game_id, 0)
+            if elapsed < self._summary_cache_fail_ttl:
+                logger.debug(f"Game summary 失败结果缓存有效 (game_id={game_id}, elapsed={elapsed:.0f}s)")
+                return None
+            logger.info(f"Game summary 失败结果缓存过期，重新获取 (game_id={game_id})")
+            del self._summary_cache[game_id]
+            del self._summary_cache_ttl[game_id]
 
         if profile_id is None:
             game = await self.get_game_by_id(game_id)
             if not game:
                 self._summary_cache[game_id] = None
+                self._summary_cache_ttl[game_id] = time.monotonic()
                 return None
             profile_id = None
             for team in game.get("teams", []):
@@ -432,6 +447,7 @@ class AoE4WorldClient:
                     break
             if profile_id is None:
                 self._summary_cache[game_id] = None
+                self._summary_cache_ttl[game_id] = time.monotonic()
                 return None
 
         await self._summary_limiter.wait()
@@ -444,9 +460,11 @@ class AoE4WorldClient:
                 return data
             logger.warning(f"Game summary 通过 FlareSolverr 获取到空数据 (game_id={game_id})")
             self._summary_cache[game_id] = None
+            self._summary_cache_ttl[game_id] = time.monotonic()
             return None
         logger.info(f"FlareSolverr 不可用，放弃获取 summary (game_id={game_id})")
         self._summary_cache[game_id] = None
+        self._summary_cache_ttl[game_id] = time.monotonic()
         return None
 
     async def _fetch_summary_via_flaresolverr(self, url: str) -> dict | None:
@@ -513,8 +531,13 @@ class AoE4WorldClient:
         logger.warning(f"FlareSolverr({FLARESOLVERR_URL}) 3次尝试均失败: {last_error}")
         return None
 
-    async def get_leaderboard(self, leaderboard_key: str = "rm_solo", limit: int = 10) -> list[dict]:
-        data = await self._request(f"/leaderboards/{leaderboard_key}", {"limit": limit}, timeout=TIMEOUT_LEADERBOARD)
+    async def get_leaderboard(self, leaderboard_key: str = "rm_solo", limit: int = 10, page: int | None = None, offset: int | None = None) -> list[dict]:
+        params = {"limit": limit}
+        if page is not None:
+            params["page"] = page
+        if offset is not None:
+            params["offset"] = offset
+        data = await self._request(f"/leaderboards/{leaderboard_key}", params, timeout=self._timeout_leaderboard)
         if not data:
             return []
         players = data.get("players", [])
@@ -525,7 +548,7 @@ class AoE4WorldClient:
         try:
             async with session.get(
                 "https://www.ageofempires.com/news/feed/",
-                timeout=aiohttp.ClientTimeout(total=15)
+                timeout=aiohttp.ClientTimeout(total=self._timeout_default)
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"RSS feed 返回 {resp.status}")
@@ -542,7 +565,7 @@ class AoE4WorldClient:
         try:
             async with session.get(
                 f"{AOE4WORLD_API}/stats/{mode}/matchups",
-                timeout=aiohttp.ClientTimeout(total=TIMEOUT_DEFAULT),
+                timeout=aiohttp.ClientTimeout(total=self._timeout_default),
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f" matchup查询失败: {resp.status}")

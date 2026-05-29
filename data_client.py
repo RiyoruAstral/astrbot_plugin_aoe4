@@ -1,4 +1,5 @@
 import asyncio
+import time
 import aiohttp
 from astrbot.api import logger
 
@@ -24,6 +25,7 @@ CIV_NAME_TO_CODE = {
     "奥斯曼": "ot", "马里": "ma", "拜占庭": "by", "日本": "jp",
     "阿尤布": "ay", "圣女贞德": "jd", "龙骑士团": "od", "朱熹遗产": "zx",
     "金朝": "ji",
+    "金账汗国": "gh",
     "战国大名": "sg",
     "圣殿骑士团": "kt",
     "兰开斯特王朝": "hl",
@@ -37,7 +39,7 @@ CIV_CODE_TO_NAME = {
     "ot": "奥斯曼", "ma": "马里", "by": "拜占庭", "jp": "日本",
     "ay": "阿尤布", "jd": "圣女贞德", "od": "龙骑士团", "zx": "朱熹遗产",
     "ji": "金朝",
-    "gh": "金朝",
+    "gh": "金账汗国",
     "sg": "战国大名",
     "kt": "圣殿骑士团",
     "hl": "兰开斯特王朝",
@@ -50,12 +52,14 @@ CIV_CODE_TO_NAME = {
 
 
 class AoE4DataClient:
-    def __init__(self, translator=None):
+    def __init__(self, translator=None, cache_ttl: int = 86400):
         self._session: aiohttp.ClientSession | None = None
         self._units: list[dict] | None = None
         self._buildings: list[dict] | None = None
         self._technologies: list[dict] | None = None
         self._lock = asyncio.Lock()
+        self._data_loaded_at: float = 0.0
+        self._cache_ttl = cache_ttl
         self.tr = translator
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -76,10 +80,11 @@ class AoE4DataClient:
             return None
 
     async def _ensure_loaded(self):
-        if self._units is not None:
+        now = time.monotonic()
+        if self._units is not None and self._cache_ttl > 0 and (now - self._data_loaded_at) < self._cache_ttl:
             return
         async with self._lock:
-            if self._units is not None:
+            if self._units is not None and self._cache_ttl > 0 and (now - self._data_loaded_at) < self._cache_ttl:
                 return
             label = self.tr.t("loading_data") if self.tr else "Loading AoE4 game data..."
             logger.info(label)
@@ -92,6 +97,7 @@ class AoE4DataClient:
             self._units = (results[0] or {}).get("data", [])
             self._buildings = (results[1] or {}).get("data", [])
             self._technologies = (results[2] or {}).get("data", [])
+            self._data_loaded_at = time.monotonic()
             done = self.tr.t("data_loaded") if self.tr else "Game data loaded"
             logger.info(f"{done}: {len(self._units)} units, {len(self._buildings)} buildings, {len(self._technologies)} techs")
 

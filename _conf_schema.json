@@ -46,5 +46,47 @@
         "options": ["never", "once", "always"],
         "enum": ["never", "once", "always"],
         "labels": ["从不连接", "仅首次尝试", "每次都尝试"]
+    },
+    "summary_cache_ttl": {
+        "type": "int",
+        "description": "Game summary cache TTL (seconds) / 对局评分缓存时间(秒)",
+        "default": 120,
+        "hint": "失败结果缓存时间，到期后自动重试。设为0则禁用缓存"
+    },
+    "pypi_mirror": {
+        "type": "string",
+        "description": "PyPI mirror for auto-installing Playwright / Playwright 自动安装的 PyPI 镜像源",
+        "default": "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple",
+        "hint": "留空则使用默认 PyPI。国内用户建议保留清华源"
+    },
+    "chromium_download_host": {
+        "type": "string",
+        "description": "Chromium download host for Playwright / Playwright Chromium 浏览器下载镜像",
+        "default": "https://playwright.azureedge.net/",
+        "hint": "留空则使用 Playwright 默认源。国内用户可改为 https://cdn.npmmirror.com/binaries/playwright"
+    },
+    "api_timeout_default": {
+        "type": "int",
+        "description": "API request timeout (seconds) / API 请求超时时间(秒)",
+        "default": 15,
+        "hint": "对 aoe4world.com 的请求超时，网络环境差可调大"
+    },
+    "api_timeout_leaderboard": {
+        "type": "int",
+        "description": "Leaderboard API timeout (seconds) / 排行榜请求超时时间(秒)",
+        "default": 30,
+        "hint": "排行榜数据量大，默认30秒"
+    },
+    "data_cache_ttl": {
+        "type": "int",
+        "description": "Game data cache TTL (seconds) / 游戏数据缓存时间(秒)",
+        "default": 86400,
+        "hint": "文明/单位/建筑/科技等数据的缓存过期时间，到期后自动刷新。设为0则每次重启才刷新"
+    },
+    "myciv_analysis_games": {
+        "type": "int",
+        "description": "Recent games for /aoe4 me -civ analysis / /aoe4 me -civ 分析的最近对局数",
+        "default": 5,
+        "hint": "分析最近N场的文明胜率分布，范围2~50"
     }
 }
