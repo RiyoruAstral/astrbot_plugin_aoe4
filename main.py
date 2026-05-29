@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
-from astrbot.api.message_components import At, Image
+from astrbot.api.message_components import At, Image, Node, Nodes, Plain
 from api_client import AoE4WorldClient, check_flaresolverr_connection
 from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
@@ -533,6 +533,13 @@ class AstrBotAOE4Plugin(Star):
         except Exception as e:
             logger.warning(f"渲染引擎初始化异常: {e}")
 
+    def _forward_result(self, event: AstrMessageEvent, text: str, threshold: int = 10):
+        if text.count("\n") + 1 > threshold:
+            return event.chain_result(
+                [Nodes(nodes=[Node(name="AOE4 Bot", uin="0", content=[Plain(text)])])]
+            )
+        return event.plain_result(text)
+
     def _civ_name(self, civ_id: str) -> str:
         if not civ_id:
             return ""
@@ -565,13 +572,13 @@ class AstrBotAOE4Plugin(Star):
         sub = raw_sub.removesuffix("-help") if raw_sub.endswith("-help") else raw_sub
 
         if not sub or sub in ("help", "-h", "--help"):
-            yield event.plain_result(self._build_help_text())
+            yield self._forward_result(event, self._build_help_text())
             return
 
         if is_help_request or raw_sub.endswith("-help") and raw_sub != sub:
             help_text = SUBCOMMAND_HELP.get(sub)
             if help_text:
-                yield event.plain_result(help_text)
+                yield self._forward_result(event, help_text)
             else:
                 yield event.plain_result(self.tr.t("err_not_found_cmd", sub=sub))
             return
@@ -768,7 +775,7 @@ class AstrBotAOE4Plugin(Star):
                     f"    {bar} {stats['wins']}/{stats['games']} "
                     f"({wr:.0f}%){rd_str}"
                 )
-            yield event.plain_result("\n".join(lines))
+            yield self._forward_result(event, "\n".join(lines))
             return
 
         player = await self.client.get_player(pid)
@@ -782,7 +789,7 @@ class AstrBotAOE4Plugin(Star):
         if show_gid:
             gid_lines = await self._append_recent_gids(player["profile_id"])
             lines.extend(gid_lines)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
 # ─── 玩家资料 ─────────────────────────────────
 
@@ -806,7 +813,7 @@ class AstrBotAOE4Plugin(Star):
         if show_gid:
             gid_lines = await self._append_recent_gids(player["profile_id"])
             lines.extend(gid_lines)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _format_profile(self, player: dict) -> list[str]:
         name = player["name"]
@@ -960,15 +967,7 @@ class AstrBotAOE4Plugin(Star):
                     lines.append(f"   对手: {', '.join(opponents)}")
             else:
                 lines.append(f"{i}. {map_name} {kind} - 无法获取详细数据")
-        if len(lines) <= 7:
-            yield event.plain_result("\n".join(lines))
-        else:
-            header = lines[0]
-            game_lines = lines[1:]
-            for start_idx in range(0, len(game_lines), 5):
-                chunk = [header] if start_idx == 0 else [f"（第 {start_idx//5 + 2} 页）"]
-                chunk.extend(game_lines[start_idx:start_idx + 5])
-                yield event.plain_result("\n".join(chunk))
+        yield self._forward_result(event, "\n".join(lines))
 
 # ─── 上一局详情 ──────────────────────────────
 
@@ -1035,9 +1034,9 @@ class AstrBotAOE4Plugin(Star):
                     yield img_result
                     return
                 score_lines = self._format_score_comparison(summary["players"], map_name, kind, dur, time_ago)
-                yield event.plain_result("\n".join(score_lines))
+                yield self._forward_result(event, "\n".join(score_lines))
             else:
-                yield event.plain_result(self._format_game_fallback(game, map_name, kind, dur, time_ago, id_suffix))
+                yield self._forward_result(event, self._format_game_fallback(game, map_name, kind, dur, time_ago, id_suffix))
             return
 
         my_data = None
@@ -1083,7 +1082,7 @@ class AstrBotAOE4Plugin(Star):
             lines.append(f"  📊 经济: {eco}  军事: {mil}  科技: {tech}")
         lines.append("")
         lines.extend(teams_strs)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     @staticmethod
     def _format_score_comparison(players: list[dict], map_name: str, kind: str, dur: str, time_ago: str) -> list[str]:
@@ -1235,10 +1234,10 @@ class AstrBotAOE4Plugin(Star):
                     yield img_result
                     return
                 score_lines = self._format_score_comparison(summary["players"], map_name, kind, dur, time_ago)
-                yield event.plain_result("\n".join(score_lines))
+                yield self._forward_result(event, "\n".join(score_lines))
             else:
                 fallback = self._format_game_fallback(game, map_name, kind, dur, time_ago)
-                yield event.plain_result(fallback)
+                yield self._forward_result(event, fallback)
             return
 
         id_suffix = self._build_id_suffix(show_gid, show_pid, game_id, None)
@@ -1260,7 +1259,7 @@ class AstrBotAOE4Plugin(Star):
                         pid_str = f" [PID:{pid_val}]"
                 members.append(f"{icon}{flag}{name}({civ}){rd_str}{pid_str}")
             lines.append(f"  队伍{ti + 1}: {' | '.join(members)}")
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     @staticmethod
     def _build_id_suffix(show_gid: bool, show_pid: bool, game_id: int | None = None, profile_id: int | None = None) -> str:
@@ -1375,7 +1374,7 @@ class AstrBotAOE4Plugin(Star):
                     else:
                         row_parts.append("·")
                 lines.append("  " + " | ".join(row_parts))
-            yield event.plain_result("\n".join(lines))
+            yield self._forward_result(event, "\n".join(lines))
             return
 
         html = generate_matchup_html(data, mode, patch)
@@ -1471,7 +1470,7 @@ class AstrBotAOE4Plugin(Star):
                     f"🏆 {label} | 未在前 10000 名中找到你",
                     f"  {rank_display} | {my_rating}分 | 胜率{wr}% | {games}场",
                 ]
-            yield event.plain_result("\n".join(lines))
+            yield self._forward_result(event, "\n".join(lines))
             return
 
         mode_alias = raw_arg
@@ -1510,7 +1509,7 @@ class AstrBotAOE4Plugin(Star):
                 f"{i:>2}. {country}{name}{pid_suffix}\n"
                 f"    {rank_level} | {rating}分 | 胜率{wr}%{streak_str}"
             )
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_checkfs(self, event: AstrMessageEvent):
         ok, msg = await check_flaresolverr_connection()
@@ -1557,7 +1556,7 @@ class AstrBotAOE4Plugin(Star):
                         rank_info = f" | {rl} {rt}分"
                         break
             lines.append(f"  {country}{name} (ID: {pid}){rank_info}")
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
 # ─── 游戏数据查询 ────────────────────────────
 
@@ -1572,7 +1571,7 @@ class AstrBotAOE4Plugin(Star):
                 if name not in seen:
                     seen.add(name)
                     civ_lines.append(f"  {name}")
-            yield event.plain_result(f"🏛️ 所有文明:\n" + "\n".join(civ_lines) + "\n\n使用 /aoe4 civ <文明名> 查看详情")
+            yield self._forward_result(event, f"🏛️ 所有文明:\n" + "\n".join(civ_lines) + "\n\n使用 /aoe4 civ <文明名> 查看详情")
             return
         code = CIV_NAME_TO_CODE.get(query)
         if not code:
@@ -1596,7 +1595,7 @@ class AstrBotAOE4Plugin(Star):
         unique_techs = [t for t in data["technologies"] if t.get("unique")]
         if unique_techs:
             lines.append(f"  ⭐ 特色科技: {' | '.join(self.tr.tech(t['name']) for t in unique_techs)}")
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_unit(self, event: AstrMessageEvent):
         parts = event.message_str.strip().split(maxsplit=2)
@@ -1613,7 +1612,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
         lines = self.data.format_unit(results[0])
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_building(self, event: AstrMessageEvent):
         parts = event.message_str.strip().split(maxsplit=2)
@@ -1630,7 +1629,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
         lines = self.data.format_building(results[0])
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_tech(self, event: AstrMessageEvent):
         parts = event.message_str.strip().split(maxsplit=2)
@@ -1647,7 +1646,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(f"找到多个匹配，请精确搜索:\n{names}")
             return
         lines = self.data.format_technology(results[0])
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
 # ─── 版本更新 ─────────────────────────────────
 
@@ -1668,9 +1667,7 @@ class AstrBotAOE4Plugin(Star):
                 lines.append(f"  {p.get('description')}")
             if p.get('url') or p.get('link'):
                 lines.append(f"  🔗 {p.get('url') or p.get('link')}")
-        yield event.plain_result("\n".join(lines))
-
-# ─── 克制关系 ─────────────────────────────────
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_counter(self, event: AstrMessageEvent):
         parts = event.message_str.strip().split(maxsplit=2)
@@ -1683,7 +1680,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(f"未找到单位「{query}」")
             return
         lines = self.data.format_counter_info(info)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
 # ─── 玩家对比 ─────────────────────────────────
 
@@ -1761,7 +1758,7 @@ class AstrBotAOE4Plugin(Star):
             return
         player_a, player_b = res_a[0], res_b[0]
         lines = await self._build_compare_result(player_a, player_b)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _handle_mecompare(self, event: AstrMessageEvent):
         sender_id = event.get_sender_id()
@@ -1803,7 +1800,7 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result(err)
             return
         lines = await self._build_compare_result(my_player, target_player)
-        yield event.plain_result("\n".join(lines))
+        yield self._forward_result(event, "\n".join(lines))
 
     async def _build_compare_result(self, player_a: dict, player_b: dict) -> list[str]:
         name_a = player_a["name"]
