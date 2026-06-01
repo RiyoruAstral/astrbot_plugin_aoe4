@@ -1700,7 +1700,7 @@ class AstrBotAOE4Plugin(Star):
         cache_dir = os.path.join(tempfile.gettempdir(), "aoe4_counter_cache")
         os.makedirs(cache_dir, exist_ok=True)
         img_path = os.path.join(cache_dir, f"counter_{uuid.uuid4().hex}.jpg")
-        ok = await render_html_to_image(html, img_path, width=640)
+        ok = await render_html_to_image(html, img_path, width=480)
         if ok and os.path.exists(img_path):
             return event.chain_result([Image(file=img_path)])
         return None

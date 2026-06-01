@@ -191,6 +191,50 @@ class AoE4DataClient:
                 result.append("".join(cls.split()))
         return result
 
+    @staticmethod
+    def _class_tags() -> dict[str, list[str]]:
+        return {
+            "LightMeleeInfantry": ["步兵", "近战", "轻型"],
+            "HeavyMeleeInfantry": ["步兵", "近战", "重型"],
+            "LightRangedInfantry": ["步兵", "远程", "轻型"],
+            "HeavyRangedInfantry": ["步兵", "远程", "重型"],
+            "LightMeleeCavalry": ["骑兵", "近战", "轻型"],
+            "HeavyMeleeCavalry": ["骑兵", "近战", "重型"],
+            "LightRangedCavalry": ["骑兵", "远程", "轻型"],
+            "HeavyRangedCavalry": ["骑兵", "远程", "重型"],
+            "Siege": ["攻城器"],
+            "Camel": ["骆驼"],
+            "Ranged": ["远程"],
+            "Melee": ["近战"],
+            "Infantry": ["步兵"],
+            "Cavalry": ["骑兵"],
+            "Light": ["轻型"],
+            "Heavy": ["重型"],
+            "Ship": ["船舰"],
+            "Building": ["建筑"],
+            "Monks": ["僧侣"],
+            "Traders": ["商人"],
+            "Spearman": ["步兵", "长矛兵"],
+            "Archer": ["步兵", "远程"],
+            "Horseman": ["骑兵", "近战"],
+            "Crossbowman": ["步兵", "远程"],
+            "Fire": ["火焰"],
+            "Gunpowder": ["火药"],
+             "LightGunpowderInfantry": ["步兵", "远程", "火药"],
+             "WarElephant": ["骑兵", "重型", "战象"],
+             "WorkerElephant": ["骑兵", "轻型", "战象"],
+             "CamelRider": ["骑兵", "骆驼"],
+             "CamelArcher": ["骑兵", "远程", "骆驼"],
+         }
+
+    @staticmethod
+    def _class_to_tags(display_classes: list[str]) -> set[str]:
+        tags = set()
+        mapping = AoE4DataClient._class_tags()
+        for dc in display_classes:
+            tags.update(mapping.get(dc, [dc]))
+        return tags
+
     def _match(self, items: list[dict], query: str) -> list[dict]:
         q = query.lower().replace("-", " ").replace("_", " ")
         results = []
@@ -265,7 +309,6 @@ class AoE4DataClient:
         for unit in groups[0]:
             counters = self._extract_counters(unit)
             countered_by = self._extract_countered_by(unit, self._units)
-            tech_groups = self.get_affecting_techs(unit)
             variants.append({
                 "unit_id": unit["id"],
                 "name": self._unit_name(unit) if self.tr else unit.get("name", ""),
@@ -276,7 +319,6 @@ class AoE4DataClient:
                 "display_class": self._display_classes_str(unit.get("displayClasses", [])),
                 "counters": counters,
                 "countered_by": countered_by,
-                "tech_groups": tech_groups,
                 "_raw": unit,
             })
         return {
@@ -308,25 +350,28 @@ class AoE4DataClient:
         return result
 
     def _extract_counters(self, unit: dict) -> list[dict]:
-        counters = []
+        tag_damage: dict[str, int] = {}
         for w in unit.get("weapons") or []:
             for mod in w.get("modifiers") or []:
                 target = mod.get("target", {})
                 target_classes = target.get("displayClasses", [])
                 if not target_classes:
                     continue
-                counters.append({
-                    "classes": target_classes,
-                    "bonus_damage": mod.get("damage") or 0,
-                    "weapon_type": w.get("type", ""),
-                })
-        return counters
+                tags = self._class_to_tags(target_classes)
+                dmg = mod.get("value") or 0
+                for tag in tags:
+                    tag_damage[tag] = tag_damage.get(tag, 0) + dmg
+        return [{"tag": tag, "damage": dmg} for tag, dmg in sorted(tag_damage.items(), key=lambda x: -x[1])]
 
     def _extract_countered_by(self, unit: dict, all_units: list[dict]) -> list[dict]:
-        unit_classes = set(unit.get("displayClasses", []))
+        unit_tags = self._class_to_tags(unit.get("displayClasses", []))
+        seen_names = set()
         countered_by = []
         for other in all_units:
             if other["id"] == unit["id"]:
+                continue
+            other_name = self._unit_name(other)
+            if other_name in seen_names:
                 continue
             for w in other.get("weapons") or []:
                 for mod in w.get("modifiers") or []:
@@ -334,16 +379,14 @@ class AoE4DataClient:
                     target_classes = target.get("displayClasses", [])
                     if not target_classes:
                         continue
-                    if unit_classes & set(target_classes):
+                    target_tags = self._class_to_tags(target_classes)
+                    if target_tags & unit_tags:
+                        seen_names.add(other_name)
                         countered_by.append({
-                            "unit": self._unit_name(other),
-                            "unit_id": other.get("id"),
-                            "classes": target_classes,
-                            "bonus_damage": mod.get("damage") or 0,
+                            "unit": other_name,
+                            "damage": mod.get("value") or 0,
                         })
                         break
-                if countered_by and countered_by[-1].get("unit_id") == other.get("id"):
-                    continue
         return countered_by
 
     @staticmethod
@@ -625,9 +668,8 @@ class AoE4DataClient:
         lines = [f"⚔️ {unit_name} {self.tr.game_label('counter_title') if self.tr else '克制关系'}"]
         if counters:
             for c in counters:
-                cls_names = ", ".join(self._class_label(cl) for cl in c["classes"])
-                dmg_str = f" (+{c['bonus_damage']} {c['weapon_type']})" if c.get("bonus_damage") else ""
-                lines.append(f"  🔼 {self.tr.game_label('counters') if self.tr else '克制'} {cls_names}{dmg_str}")
+                dmg_str = f" (+{c['damage']})" if c.get("damage") else ""
+                lines.append(f"  🔼 {self.tr.game_label('counters') if self.tr else '克制'} {c['tag']}{dmg_str}")
         elif not countered_by:
             desc = unit.get("description", "")
             if desc:
@@ -641,7 +683,8 @@ class AoE4DataClient:
                 cb_name = cb["unit"]
                 if cb_name not in seen_units:
                     seen_units.add(cb_name)
-                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb_name} {self.tr.game_label('countered') if self.tr else '克制'}")
+                    dmg_str = f" (+{cb['damage']})" if cb.get("damage") else ""
+                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb_name}{dmg_str} {self.tr.game_label('countered') if self.tr else '克制'}")
                     if len(seen_units) >= 10:
                         lines.append(f"  ... 还有 {len(set(c['unit'] for c in countered_by)) - 10} 个克制单位")
                         break
