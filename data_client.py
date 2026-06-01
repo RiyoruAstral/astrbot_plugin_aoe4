@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 import aiohttp
 from astrbot.api import logger
@@ -105,10 +106,18 @@ class AoE4DataClient:
         q = query.lower().replace("-", " ").replace("_", " ")
         results = []
         for item in items:
-            name = item.get("name", "").lower()
+            name = item.get("name", "")
+            name_lower = name.lower()
             mid = item.get("id", "").lower().replace("-", " ").replace("_", " ")
-            if q in name or q in mid:
+            if q in name_lower or q in mid:
                 results.append(item)
+                continue
+            if self.tr:
+                for section_fn in (self.tr.unit, self.tr.building, self.tr.tech):
+                    tname = section_fn(name).lower()
+                    if tname != name_lower and q in tname:
+                        results.append(item)
+                        break
         return results[:10]
 
     async def search_units(self, query: str) -> list[dict]:
@@ -323,22 +332,111 @@ class AoE4DataClient:
         unit = info["unit"]
         counters = info["counters"]
         countered_by = info["countered_by"]
-        lines = [f"⚔️ {unit['name']} {self.tr.game_label('counter_title') if self.tr else '克制关系'}"]
+        unit_name = self._unit_name(unit) if self.tr else unit["name"]
+        lines = [f"⚔️ {unit_name} {self.tr.game_label('counter_title') if self.tr else '克制关系'}"]
         if counters:
             for c in counters:
                 cls_names = ", ".join(self._class_label(cl) for cl in c["classes"])
                 lines.append(f"  🔼 {self.tr.game_label('counters') if self.tr else '克制'} {cls_names} (+{c['bonus_damage']} {c['weapon_type']})")
+        elif not countered_by:
+            desc = unit.get("description", "")
+            if desc:
+                lines.append(f"  💡 {self._translate_description(desc)}")
+            return lines
         else:
             lines.append(f"  {self.tr.game_label('no_counters') if self.tr else '无明显克制关系'}")
         if countered_by:
             seen_units = set()
             for cb in countered_by:
-                if cb["unit"] not in seen_units:
-                    seen_units.add(cb["unit"])
-                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb['unit']} {self.tr.game_label('countered') if self.tr else '克制'}")
+                cb_name = self.tr.unit(cb["unit"]) if self.tr else cb["unit"]
+                if cb_name not in seen_units:
+                    seen_units.add(cb_name)
+                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb_name} {self.tr.game_label('countered') if self.tr else '克制'}")
         else:
             lines.append(f"  {self.tr.game_label('no_countered_by') if self.tr else '无明显被克制关系'}")
         desc = unit.get("description", "")
         if desc:
-            lines.append(f"  💡 {desc.replace(chr(10), ' ')}")
+            lines.append(f"  💡 {self._translate_description(desc)}")
         return lines
+
+    def _unit_name(self, unit: dict) -> str:
+        name = unit.get("name", "")
+        return self.tr.unit(name) if self.tr else name
+
+    def _translate_description(self, desc: str) -> str:
+        if not self.tr:
+            return desc.replace(chr(10), " ")
+        text = desc.replace(chr(10), " ")
+        text = self._translate_countered_by(text)
+        text = self._translate_vs_patterns(text)
+        text = self._replace_keywords(text)
+        return text
+
+    def _translate_countered_by(self, text: str) -> str:
+        m = re.search(r'(?:-\s*)?Countered\s+by\s+(\w[\w\s-]*)', text, re.IGNORECASE)
+        if m:
+            raw = m.group(1).strip().rstrip(".")
+            translated = self._find_unit_name(raw)
+            text = text[:m.start()] + f"被 {translated} 克制" + text[m.end():]
+        return text
+
+    def _translate_vs_patterns(self, text: str) -> str:
+        text = re.sub(
+            r'\bGood\s+damage\s+vs\.?\s+(\w[\w\s]*)',
+            lambda m: f"高伤害对抗 {self._replace_keywords(m.group(1).strip())}",
+            text, flags=re.IGNORECASE
+        )
+        text = re.sub(
+            r'\bGood\s+vs\.?\s+(\w[\w\s]*)',
+            lambda m: f"擅长对抗 {self._replace_keywords(m.group(1).strip())}",
+            text, flags=re.IGNORECASE
+        )
+        text = re.sub(
+            r'\b(?:Weak|Ineffective)\s+against\s+(\w[\w\s]*)',
+            lambda m: f"对 {self._replace_keywords(m.group(1).strip())} 较弱",
+            text, flags=re.IGNORECASE
+        )
+        text = re.sub(
+            r'\b(?:Weak|Ineffective)\s+vs\.?\s+(\w[\w\s]*)',
+            lambda m: f"对 {self._replace_keywords(m.group(1).strip())} 较弱",
+            text, flags=re.IGNORECASE
+        )
+        return text
+
+    def _find_unit_name(self, raw: str) -> str:
+        raw_lower = raw.lower().strip().rstrip(".")
+        if not raw_lower or not self._units:
+            return raw
+        raw_singular = raw_lower.rstrip("s")
+        raw_singular = raw_singular.replace("men", "man")
+        for unit in self._units:
+            uid = unit.get("id", "").lower()
+            uname = unit.get("name", "").lower()
+            if raw_lower == uname or raw_lower == uid:
+                return self.tr.unit(unit["name"])
+            if raw_singular == uname or raw_singular == uid:
+                return self.tr.unit(unit["name"])
+            if uname.startswith(raw_lower) or uid.startswith(raw_lower):
+                return self.tr.unit(unit["name"])
+        return self.tr.counter_keyword(raw) if self.tr.counter_keyword(raw) != raw else raw
+
+    def _replace_keywords(self, text: str) -> str:
+        if not self.tr:
+            return text
+        result = text
+        result = re.sub(r'\brate of fire\b', self.tr.counter_keyword("rate of fire"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\battack speed\b', self.tr.counter_keyword("attack speed"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bmovement speed\b', self.tr.counter_keyword("movement speed"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\branged armor\b', self.tr.counter_keyword("ranged armor"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bmelee armor\b', self.tr.counter_keyword("melee armor"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\btarget(?:s)?\b', self.tr.counter_keyword("targets"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bunarmored\b', self.tr.counter_keyword("unarmored"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\barmored\b', self.tr.counter_keyword("armored"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\branged\b', self.tr.counter_keyword("ranged"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bmelee\b', self.tr.counter_keyword("melee"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\binfantry\b', self.tr.counter_keyword("infantry"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bcavalry\b', self.tr.counter_keyword("cavalry"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bcheap\b', self.tr.counter_keyword("cheap"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\bhigh\b', self.tr.counter_keyword("high"), result, flags=re.IGNORECASE)
+        result = re.sub(r'\blow\b', self.tr.counter_keyword("low"), result, flags=re.IGNORECASE)
+        return result

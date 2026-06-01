@@ -55,6 +55,9 @@ class Translator:
     def display_class(self, cls: str) -> str:
         return self._g("display_classes", cls, cls)
 
+    def counter_keyword(self, keyword: str) -> str:
+        return self._g("counter_keywords", keyword, keyword)
+
     def resource(self, name: str) -> str:
         return self._g("resources", name, name)
 

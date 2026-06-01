@@ -746,10 +746,11 @@ class AstrBotAOE4Plugin(Star):
             for g in games:
                 for team in g.get("teams", []):
                     for p in team:
-                        if p.get("profile_id") == pid:
-                            civ_key = p.get("civilization", "unknown")
-                            result = p.get("result", "unknown")
-                            rd = p.get("rating_diff", 0)
+                        pd = p.get("player", p)
+                        if pd.get("profile_id") == pid:
+                            civ_key = pd.get("civilization", "unknown")
+                            result = pd.get("result", "unknown")
+                            rd = pd.get("rating_diff", 0)
                             if civ_key not in civ_stats:
                                 civ_stats[civ_key] = {"wins": 0, "games": 0, "total_rd": 0}
                             civ_stats[civ_key]["games"] += 1
