@@ -831,7 +831,7 @@ def generate_counter_html(unit_data: dict) -> str:
             counters_html = f'<div class="counter-muted">无额外克制</div>'
 
         countered_html = ""
-        for cb in v.get("countered_by", []):
+        for cb in v.get("countered_by", [])[:10]:
             cb_name = cb.get("unit", "?")
             dmg = cb.get("bonus_damage", 0)
             dmg_str = f" (+{dmg})" if dmg else ""
@@ -846,9 +846,11 @@ def generate_counter_html(unit_data: dict) -> str:
             for tg in tech_groups:
                 bld_name = tg.get("building_name", "?")
                 tech_html += f'<div class="bld-group"><div class="bld-title">🏭 {bld_name}</div>'
-                for t in tg.get("techs", []):
+                for t in tg.get("techs", [])[:5]:
                     effect = (t.get("description") or "").replace(chr(10), " ")
                     tech_html += f'<div class="tech-item">🔹 {effect}</div>'
+                if len(tg.get("techs", [])) > 5:
+                    tech_html += f'<div class="tech-more">... 还有 {len(tg["techs"]) - 5} 项</div>'
                 tech_html += '</div>'
         else:
             tech_html = '<div class="tech-empty">暂无可用科技</div>'
@@ -929,6 +931,7 @@ body {{
 .bld-title {{ font-size: 11px; color: #8888aa; font-weight: bold; margin-bottom: 2px; }}
 .tech-item {{ font-size: 11px; color: #85d085; padding: 1px 0; }}
 .tech-empty {{ font-size: 11px; color: #555; font-style: italic; }}
+.tech-more {{ font-size: 10px; color: #666; font-style: italic; }}
 .desc {{ text-align: center; padding: 10px 16px; margin-top: 4px; color: #a0a0c0; font-size: 11px; background: rgba(255,255,255,0.03); border-radius: 8px; }}
 </style>
 </head>

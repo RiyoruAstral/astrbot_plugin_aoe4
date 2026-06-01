@@ -313,13 +313,13 @@ class AoE4DataClient:
             for mod in w.get("modifiers") or []:
                 target = mod.get("target", {})
                 target_classes = target.get("displayClasses", [])
-                bonus = mod.get("damage", 0)
-                if target_classes and bonus > 0:
-                    counters.append({
-                        "classes": target_classes,
-                        "bonus_damage": bonus,
-                        "weapon_type": w.get("type", mod.get("type", "")),
-                    })
+                if not target_classes:
+                    continue
+                counters.append({
+                    "classes": target_classes,
+                    "bonus_damage": mod.get("damage") or 0,
+                    "weapon_type": w.get("type", ""),
+                })
         return counters
 
     def _extract_countered_by(self, unit: dict, all_units: list[dict]) -> list[dict]:
@@ -332,15 +332,17 @@ class AoE4DataClient:
                 for mod in w.get("modifiers") or []:
                     target = mod.get("target", {})
                     target_classes = target.get("displayClasses", [])
-                    bonus = mod.get("damage", 0)
-                    if target_classes and bonus > 0 and unit_classes & set(target_classes):
+                    if not target_classes:
+                        continue
+                    if unit_classes & set(target_classes):
                         countered_by.append({
                             "unit": self._unit_name(other),
+                            "unit_id": other.get("id"),
                             "classes": target_classes,
-                            "bonus_damage": bonus,
+                            "bonus_damage": mod.get("damage") or 0,
                         })
                         break
-                if countered_by and countered_by[-1].get("unit") == other["name"]:
+                if countered_by and countered_by[-1].get("unit_id") == other.get("id"):
                     continue
         return countered_by
 
@@ -456,9 +458,9 @@ class AoE4DataClient:
         if not set(unit.get("civs", [])) & set(tech.get("civs", [])):
             return False
         tech_classes = tech.get("displayClasses")
-        if tech_classes:
-            return bool(set(unit.get("displayClasses", [])) & set(tech_classes))
-        return True
+        if not tech_classes:
+            return False
+        return bool(set(unit.get("displayClasses", [])) & set(tech_classes))
 
     @staticmethod
     def _filter_techs(unit: dict, techs: list[dict]) -> list[dict]:
@@ -636,11 +638,13 @@ class AoE4DataClient:
         if countered_by:
             seen_units = set()
             for cb in countered_by:
-                cb_name = self.tr.unit(cb["unit"]) if self.tr else cb["unit"]
+                cb_name = cb["unit"]
                 if cb_name not in seen_units:
                     seen_units.add(cb_name)
-                    dmg_str = f" (+{cb['bonus_damage']})" if cb.get("bonus_damage") else ""
-                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb_name}{dmg_str} {self.tr.game_label('countered') if self.tr else '克制'}")
+                    lines.append(f"  🔽 {self.tr.game_label('countered_by') if self.tr else '被'} {cb_name} {self.tr.game_label('countered') if self.tr else '克制'}")
+                    if len(seen_units) >= 10:
+                        lines.append(f"  ... 还有 {len(set(c['unit'] for c in countered_by)) - 10} 个克制单位")
+                        break
         else:
             lines.append(f"  {self.tr.game_label('no_countered_by') if self.tr else '无明显被克制关系'}")
         desc = unit.get("description", "")
