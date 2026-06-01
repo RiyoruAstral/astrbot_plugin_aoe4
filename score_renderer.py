@@ -789,6 +789,176 @@ async def close_browser():
         logger.info("[ScoreRender] 浏览器已关闭")
 
 
+_AGE_LABELS = {1: "黑暗", 2: "封建", 3: "城堡", 4: "帝国"}
+_AGE_COLORS = {1: "#8b8b8b", 2: "#4ecdc4", 3: "#ffd93d", 4: "#ff6b6b"}
+
+
+def generate_counter_html(unit_data: dict) -> str:
+    unit_name = unit_data.get("unit_name", "")
+    unit_class = unit_data.get("unit_class", "")
+    variants = unit_data.get("variants", [])
+    description = unit_data.get("description", "")
+
+    if not variants:
+        return _empty_html("暂无数据")
+
+    rows_html = ""
+    for v in variants:
+        age = v.get("age", 0)
+        age_label = _AGE_LABELS.get(age, f"时代{age}")
+        age_color = _AGE_COLORS.get(age, "#888")
+        name = v.get("name", "?")
+        hp = v.get("hp", "?")
+        attack = v.get("attack")
+        range_str = v.get("range")
+        cls_str = v.get("display_class", "")
+
+        stats_parts = [f"HP {hp}"]
+        if attack is not None:
+            stats_parts.append(f"攻击 {attack}")
+        if range_str:
+            stats_parts.append(f"射程 {range_str}")
+        stats_line = " · ".join(stats_parts)
+
+        counters_html = ""
+        for c in v.get("counters", []):
+            cls_names = ", ".join(c.get("classes", []))
+            dmg = c.get("bonus_damage", 0)
+            wtype = c.get("weapon_type", "")
+            dmg_str = f" (+{dmg} {wtype})" if dmg else ""
+            counters_html += f'<div class="counter-up">🔼 克制 {cls_names}{dmg_str}</div>'
+        if not counters_html:
+            counters_html = f'<div class="counter-muted">无额外克制</div>'
+
+        countered_html = ""
+        for cb in v.get("countered_by", []):
+            cb_name = cb.get("unit", "?")
+            dmg = cb.get("bonus_damage", 0)
+            dmg_str = f" (+{dmg})" if dmg else ""
+            countered_html += f'<div class="counter-down">🔽 被 {cb_name} 克制{dmg_str}</div>'
+        if not countered_html:
+            countered_html = f'<div class="counter-muted">无明显被克制</div>'
+
+        # ── Right panel: techs ──
+        tech_groups = v.get("tech_groups", [])
+        tech_html = ""
+        if tech_groups:
+            for tg in tech_groups:
+                bld_name = tg.get("building_name", "?")
+                tech_html += f'<div class="bld-group"><div class="bld-title">🏭 {bld_name}</div>'
+                for t in tg.get("techs", []):
+                    effect = (t.get("description") or "").replace(chr(10), " ")
+                    tech_html += f'<div class="tech-item">🔹 {effect}</div>'
+                tech_html += '</div>'
+        else:
+            tech_html = '<div class="tech-empty">暂无可用科技</div>'
+
+        rows_html += f"""
+        <div class="variant-row">
+          <div class="left-panel">
+            <div class="age-tag" style="background:{age_color}">{age_label}</div>
+            <div class="vt-name">{name}</div>
+            <div class="vt-class">{cls_str}</div>
+            <div class="vt-stats">{stats_line}</div>
+            <div class="counter-section">{counters_html}</div>
+            <div class="counter-section">{countered_html}</div>
+          </div>
+          <div class="right-panel">
+            {tech_html}
+          </div>
+        </div>"""
+
+    desc_html = f'<div class="desc">💡 {description.replace(chr(10), " ")}</div>' if description else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{
+  font-family: "Noto Sans SC", "WenQuanYi Micro Hei", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f0f23 100%);
+  padding: 16px;
+  color: #e0e0e0;
+  width: 640px;
+}}
+.header {{
+  text-align: center;
+  padding: 14px 20px;
+  margin-bottom: 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 12px;
+}}
+.header h1 {{ font-size: 20px; color: #ffd93d; margin-bottom: 2px; }}
+.header p {{ font-size: 13px; color: #a0a0c0; }}
+.variant-row {{
+  display: flex;
+  margin-bottom: 10px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  overflow: hidden;
+  border-left: 3px solid #2a2a4e;
+}}
+.left-panel {{
+  width: 62%;
+  padding: 12px;
+  border-right: 1px solid #2a2a4e;
+}}
+.right-panel {{
+  width: 38%;
+  padding: 10px;
+}}
+.age-tag {{
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+}}
+.vt-name {{ font-size: 16px; font-weight: bold; color: #fff; }}
+.vt-class {{ font-size: 12px; color: #8888aa; margin-bottom: 4px; }}
+.vt-stats {{ font-size: 12px; color: #a0a0c0; margin-bottom: 6px; }}
+.counter-section {{ margin-top: 4px; }}
+.counter-up {{ font-size: 12px; color: #4ecdc4; padding: 1px 0; }}
+.counter-down {{ font-size: 12px; color: #ff6b6b; padding: 1px 0; }}
+.counter-muted {{ font-size: 11px; color: #555; font-style: italic; }}
+.bld-group {{ margin-bottom: 6px; }}
+.bld-title {{ font-size: 11px; color: #8888aa; font-weight: bold; margin-bottom: 2px; }}
+.tech-item {{ font-size: 11px; color: #85d085; padding: 1px 0; }}
+.tech-empty {{ font-size: 11px; color: #555; font-style: italic; }}
+.desc {{ text-align: center; padding: 10px 16px; margin-top: 4px; color: #a0a0c0; font-size: 11px; background: rgba(255,255,255,0.03); border-radius: 8px; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>⚔️ {unit_name} · 克制进化</h1>
+  <p>{unit_class}</p>
+</div>
+{rows_html}
+{desc_html}
+</body>
+</html>"""
+
+
+def _empty_html(msg: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8">
+<style>
+body {{
+  font-family: "Noto Sans SC", sans-serif;
+  background: #1a1a2e; color: #e0e0e0;
+  width: 480px; padding: 40px; text-align: center;
+}}
+</style>
+</head>
+<body><p>{msg}</p></body>
+</html>"""
+
+
 async def render_html_to_image(html: str, output_path: str, width: int = 680, scale: int = 2) -> bool:
     if not _FONT_READY:
         fonts_ok = await _ensure_cjk_fonts()

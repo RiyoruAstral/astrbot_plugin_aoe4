@@ -1676,12 +1676,34 @@ class AstrBotAOE4Plugin(Star):
             yield event.plain_result("用法: /aoe4 counter <单位名>")
             return
         query = parts[2]
-        info = await self.data.get_counter_info(query)
-        if not info:
+        image_data = await self.data.get_counter_image_data(query)
+        if not image_data or not image_data.get("variants"):
             yield event.plain_result(f"未找到单位「{query}」")
             return
+
+        if HAS_RENDERER:
+            try:
+                img_result = await self._render_counter_image(event, image_data)
+                if img_result:
+                    yield img_result
+                    return
+            except Exception as e:
+                logger.error(f"克制图渲染失败: {e}")
+
+        info = await self.data.get_counter_info(query)
         lines = self.data.format_counter_info(info)
         yield self._forward_result(event, "\n".join(lines))
+
+    async def _render_counter_image(self, event: AstrMessageEvent, unit_data: dict):
+        from score_renderer import generate_counter_html, render_html_to_image
+        html = generate_counter_html(unit_data)
+        cache_dir = os.path.join(tempfile.gettempdir(), "aoe4_counter_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        img_path = os.path.join(cache_dir, f"counter_{uuid.uuid4().hex}.jpg")
+        ok = await render_html_to_image(html, img_path, width=640)
+        if ok and os.path.exists(img_path):
+            return event.chain_result([Image(file=img_path)])
+        return None
 
 # ─── 玩家对比 ─────────────────────────────────
 

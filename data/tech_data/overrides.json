@@ -1,0 +1,22 @@
+{
+  "exclude_techs": {
+    "handcannoneer": {
+      "tech_ids": ["steeled-arrow", "arrow-guards", "platecutter-points"],
+      "reason": "火药单位不吃铁匠铺远程攻击科技"
+    },
+    "bombard": {
+      "tech_ids": ["siege-works", "architecture"],
+      "reason": "加农炮不吃攻城器加速科技（仅影响投石机等）"
+    }
+  },
+  "force_techs": {
+    "handcannoneer": {
+      "tech_ids": ["serpentine-powder"],
+      "reason": "蛇纹石科技影响手炮手（+5 vs 步兵）"
+    }
+  },
+  "unit_name_overrides": {
+    "handcannoneer": "手炮手",
+    "grenadier": "掷弹兵"
+  }
+}
