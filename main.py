@@ -1690,19 +1690,27 @@ class AstrBotAOE4Plugin(Star):
             except Exception as e:
                 logger.error(f"克制图渲染失败: {e}")
 
-        info = await self.data.get_counter_info(query)
-        lines = self.data.format_counter_info(info)
-        yield self._forward_result(event, "\n".join(lines))
+        first = image_data["variants"][0]
+        text = self.data.format_counter_info({
+            "unit": first["_raw"],
+            "counters": first["counters"],
+            "countered_by": first["countered_by"],
+        })
+        yield self._forward_result(event, "\n".join(text))
 
     async def _render_counter_image(self, event: AstrMessageEvent, unit_data: dict):
         from score_renderer import generate_counter_html, render_html_to_image
+        variants = unit_data.get("variants", [])
+        logger.info(f"渲染克制图: {unit_data.get('unit_name', '?')}, {len(variants)} 个时代变体")
         html = generate_counter_html(unit_data)
         cache_dir = os.path.join(tempfile.gettempdir(), "aoe4_counter_cache")
         os.makedirs(cache_dir, exist_ok=True)
         img_path = os.path.join(cache_dir, f"counter_{uuid.uuid4().hex}.jpg")
         ok = await render_html_to_image(html, img_path, width=480)
         if ok and os.path.exists(img_path):
+            logger.info(f"克制图渲染成功: {img_path}")
             return event.chain_result([Image(file=img_path)])
+        logger.warning(f"克制图渲染失败或文件不存在")
         return None
 
 # ─── 玩家对比 ─────────────────────────────────

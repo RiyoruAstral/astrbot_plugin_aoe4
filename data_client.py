@@ -119,6 +119,7 @@ class AoE4DataClient:
         self._cache_ttl = cache_ttl
         self.tr = translator
         self._tech_data = TechDataManager(_TECH_DATA_DIR, translator)
+        self._countered_cache: dict[tuple, list[dict]] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -158,6 +159,7 @@ class AoE4DataClient:
             self._normalize_display_classes()
             self._data_loaded_at = time.monotonic()
             self._tech_data.load()
+            self._countered_cache.clear()
             done = self.tr.t("data_loaded") if self.tr else "Game data loaded"
             logger.info(f"{done}: {len(self._units)} units, {len(self._buildings)} buildings, {len(self._technologies)} techs")
 
@@ -308,7 +310,10 @@ class AoE4DataClient:
         variants = []
         for unit in groups[0]:
             counters = self._extract_counters(unit)
-            countered_by = self._extract_countered_by(unit, self._units)
+            dc_key = tuple(sorted(unit.get("displayClasses", [])))
+            if dc_key not in self._countered_cache:
+                self._countered_cache[dc_key] = self._extract_countered_by(unit, self._units)
+            countered_by = self._countered_cache[dc_key]
             variants.append({
                 "unit_id": unit["id"],
                 "name": self._unit_name(unit) if self.tr else unit.get("name", ""),
