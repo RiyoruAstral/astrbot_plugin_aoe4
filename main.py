@@ -15,7 +15,7 @@ from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser, set_chromium_download_host
+    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, generate_radar_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser, set_chromium_download_host
     HAS_RENDERER = True
 except ImportError:
     HAS_RENDERER = False
@@ -168,6 +168,7 @@ HELP_TEXT = (
     "  /aoe4 recent [ID] [N] @/-id  最近对局记录（加 -gid/-pid 显示ID）\n"
     "  /aoe4 last [ID] @/-id      上一局详情（加 -n N 指定第N局）\n"
     "                       加 -score 评分图  -force 强制刷新  -gid/-pid 显示ID\n"
+    "  /aoe4 radar [ID] [-n N]    上一局评分雷达图（需 Playwright）\n"
     "  /aoe4 compare <A> <B> @/-id  玩家对比\n"
     "  /aoe4 mecompare <A> @/-id  自己 vs 指定玩家\n"
     "━━━━━━━━━━━━━━━━\n"
@@ -282,6 +283,23 @@ SUBCOMMAND_HELP = {
         "  /aoe4 last @用户 -score\n"
         "  /aoe4 last beasty -score -force\n"
         "  /aoe4 last beasty -n 3 -score"
+    ),
+    "radar": (
+        "🎯 /aoe4 radar [游戏ID] [-n N] [-force]\n"
+        "查询上一局的评分雷达图（图片）。\n\n"
+        "参数:\n"
+        "  [游戏ID]  可选，不填则查询已绑定账号\n"
+        "  支持 @用户 和 -id 标志（数字Profile ID）\n"
+        "  -n N      可选，指定第N局（1=最近一局），如 -n 3\n"
+        "  -force    可选，强制刷新评分缓存\n\n"
+        "返回:\n"
+        "  雷达图图片，直观展示每位玩家的军事/经济/科技/社会四项评分分布\n\n"
+        "示例:\n"
+        "  /aoe4 radar\n"
+        "  /aoe4 radar beasty\n"
+        "  /aoe4 radar -n 3\n"
+        "  /aoe4 radar beasty -n 3\n"
+        "  /aoe4 radar @用户"
     ),
     "leaderboard": (
         "🏆 /aoe4 leaderboard [模式] [数量]\n"
@@ -506,6 +524,7 @@ class AstrBotAOE4Plugin(Star):
                     generate_score_html=mod.generate_score_html,
                     generate_analysis_html=mod.generate_analysis_html,
                     generate_matchup_html=mod.generate_matchup_html,
+                    generate_radar_html=mod.generate_radar_html,
                     render_html_to_image=mod.render_html_to_image,
                     close_renderer=mod.close_browser,
                     set_renderer_tr=mod.set_translator,
@@ -591,6 +610,7 @@ class AstrBotAOE4Plugin(Star):
             "profile": self._handle_profile,
             "recent": self._handle_recent,
             "last": self._handle_last,
+            "radar": self._handle_radar,
             "leaderboard": self._handle_leaderboard,
             "rank": self._handle_leaderboard,
             "search": self._handle_search,
@@ -1085,6 +1105,82 @@ class AstrBotAOE4Plugin(Star):
         lines.extend(teams_strs)
         yield self._forward_result(event, "\n".join(lines))
 
+    async def _handle_radar(self, event: AstrMessageEvent):
+        text = event.message_str.strip()
+        use_id = text.endswith(" -id") or text.endswith(" --id")
+        if use_id:
+            text = text.rsplit(" -id", 1)[0].rsplit(" --id", 1)[0].strip()
+        use_force = text.endswith(" -force") or text.endswith(" --force")
+        if use_force:
+            text = text.rsplit(" -force", 1)[0].rsplit(" --force", 1)[0].strip()
+        import re as _re
+        m = _re.search(r'\s+-n(\d+)$', text)
+        if not m:
+            m = _re.search(r'\s+-n\s+(\d+)\s*$', text)
+        game_index = 1
+        if m:
+            game_index = max(1, int(m.group(1)))
+            text = text[:m.start()].strip()
+        at_comps = self._get_at_mentions(event)
+        parts = text.split(maxsplit=2)
+        raw_name = parts[2] if len(parts) >= 3 else None
+        if raw_name and raw_name.startswith("@") and at_comps:
+            raw_name = "@"
+        sender_id = event.get_sender_id()
+        player, err = await self._resolve_player(sender_id, raw_name, at_comps, use_id)
+        if err:
+            yield event.plain_result(err)
+            return
+        pid = player["profile_id"]
+
+        if game_index > 1:
+            games = await self.client.get_player_games(pid, game_index)
+            if not games or len(games) < game_index:
+                yield event.plain_result(f"未找到第 {game_index} 局对局数据（最近只有 {len(games) if games else 0} 局）")
+                return
+            game = await self.client.get_game_by_id(games[-1]["game_id"])
+            if not game:
+                yield event.plain_result(f"第 {game_index} 局详情获取失败")
+                return
+        else:
+            game = await self.client.get_player_last_game(pid, include_stats=True)
+            if not game:
+                yield event.plain_result("未找到上一局对局数据")
+                return
+
+        game_id = game.get("game_id")
+        map_name = game.get("map", "未知地图")
+        kind = self._mode_name(game.get("kind", ""))
+        dur = _duration_str(game.get("duration", 0))
+        time_ago = _elapsed(game.get("started_at", ""))
+
+        if not HAS_RENDERER:
+            yield event.plain_result("雷达图需要 Playwright 渲染引擎，当前未安装。\n可尝试: pip install playwright && playwright install chromium")
+            return
+
+        summary = await self.client.get_game_summary_by_id(game_id, profile_id=pid, force=use_force)
+        if not summary or not summary.get("players"):
+            yield event.plain_result("无法获取评分数据，请稍后重试")
+            return
+
+        players = summary["players"]
+        try:
+            title = f"评分雷达图 | {kind} | {map_name} | {dur}"
+            subtitle = f"⏱ {time_ago}"
+            cache_dir = os.path.join(tempfile.gettempdir(), "aoe4_radar_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+
+            html = generate_radar_html(players, title, subtitle)
+            img_path = os.path.join(cache_dir, f"radar_{uuid.uuid4().hex}.jpg")
+            ok = await render_html_to_image(html, img_path, width=min(300 + len(players) * 140, 1200), scale=2)
+            if ok and os.path.exists(img_path):
+                yield event.chain_result([Image(file=img_path)])
+            else:
+                yield event.plain_result("雷达图渲染失败，请稍后重试")
+        except Exception as e:
+            logger.error(f"雷达图渲染失败: {e}")
+            yield event.plain_result("雷达图渲染失败，请稍后重试")
+
     @staticmethod
     def _format_score_comparison(players: list[dict], map_name: str, kind: str, dur: str, time_ago: str) -> list[str]:
         def fmt(val):
@@ -1287,6 +1383,7 @@ class AstrBotAOE4Plugin(Star):
                 f"  {t('help_profile')}\n"
                 f"  {t('help_recent')}\n"
                 f"  {t('help_last')}\n"
+                f"  {t('help_radar')}\n"
                 f"  {t('help_compare')}\n"
                 f"  {t('help_mecompare')}\n"
                 "━━━━━━━━━━━━━━━━\n"

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 import sys
 import tempfile
@@ -980,3 +981,200 @@ async def render_html_to_image(html: str, output_path: str, width: int = 680, sc
                 await context.close()
             except Exception:
                 pass
+
+
+def _normalize_radar_scores(players: list[dict]) -> tuple[list[dict], list[dict]]:
+    keys = ["military", "economy", "technology", "society"]
+    max_vals = {k: 1 for k in keys}
+    for p in players:
+        scores = p.get("scores", {})
+        for k in keys:
+            v = scores.get(k, 0) or 0
+            if v > max_vals[k]:
+                max_vals[k] = v
+    normalized_list = []
+    raw_list = []
+    for p in players:
+        scores = p.get("scores", {})
+        norm = {}
+        raw = {}
+        for k in keys:
+            v = scores.get(k, 0) or 0
+            norm[k] = v / max_vals[k] if max_vals[k] > 0 else 0
+            raw[k] = v
+        normalized_list.append(norm)
+        raw_list.append(raw)
+    return normalized_list, raw_list
+
+
+def _generate_radar_svg(normalized: dict, raw: dict, size: int = 200, color: str = "rgba(100,180,255,0.7)") -> str:
+    n_axes = 4
+    pad = 30
+    vb = size + pad * 2
+    cx = cy = vb / 2
+    r = (vb / 2 - pad) * 0.82
+    angles = [(-90 + 90 * i) for i in range(n_axes)]
+    keys = ["military", "economy", "technology", "society"]
+    labels = [_s("scores_military"), _s("scores_economy"), _s("scores_technology"), _s("scores_society")]
+
+    def _pt(deg, radius):
+        rad = math.radians(deg)
+        return (cx + radius * math.cos(rad), cy + radius * math.sin(rad))
+
+    parts = []
+    for level in range(1, 5):
+        pts = " ".join(f"{_pt(a, r * level / 4)[0]},{_pt(a, r * level / 4)[1]}" for a in angles)
+        parts.append(f'<polygon points="{pts}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>')
+    for a in angles:
+        x, y = _pt(a, r)
+        parts.append(f'<line x1="{cx}" y1="{cy}" x2="{x}" y2="{y}" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>')
+    data_pts = " ".join(f"{_pt(a, r * normalized[k])[0]},{_pt(a, r * normalized[k])[1]}" for a, k in zip(angles, keys))
+    hsla = color.replace("hsl(", "hsla(").replace(")", ", 0.15)")
+    parts.append(f'<polygon points="{data_pts}" fill="{hsla}" stroke="{color}" stroke-width="2"/>')
+    for a, k in zip(angles, keys):
+        x, y = _pt(a, r * normalized[k])
+        parts.append(f'<circle cx="{x}" cy="{y}" r="3" fill="{color}"/>')
+    for i, a in enumerate(angles):
+        lx, ly = _pt(a, r + 14)
+        parts.append(
+            f'<text x="{lx}" y="{ly}" text-anchor="middle" dominant-baseline="middle" '
+            f'fill="#aaa" font-size="11" font-family="Noto Sans SC, sans-serif">{labels[i]}</text>'
+        )
+        pct = normalized[keys[i]] * 100
+        pct_str = f"{pct:.0f}%" if pct < 100 else "100%"
+        parts.append(
+            f'<text x="{lx}" y="{ly + 14}" text-anchor="middle" dominant-baseline="middle" '
+            f'fill="#ddd" font-size="12" font-weight="bold" '
+            f'font-family="Noto Sans SC, sans-serif">{pct_str}</text>'
+        )
+
+    inner = "\n".join(parts)
+    return (
+        f'<svg viewBox="0 0 {vb} {vb}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:{size}px;height:{size}px;display:block;margin:0 auto;">'
+        f'{inner}</svg>'
+    )
+
+
+def generate_radar_html(players: list[dict], title: str, subtitle: str) -> str:
+    if not players:
+        return _empty_html("暂无玩家数据")
+    normalized_list, raw_list = _normalize_radar_scores(players)
+    n = len(players)
+    cols = 2 if n <= 4 else 3
+    radar_size = 200 if n <= 2 else (180 if n <= 4 else 150)
+    card_w = f"{100 // cols - 1}%"
+    winners = [p for p in players if p.get("result") == "win"]
+    losers = [p for p in players if p.get("result") == "loss"]
+    has_team_info = bool(winners and losers)
+    cards_html = ""
+    for i, p in enumerate(players):
+        if has_team_info:
+            is_winner = p.get("result") == "win"
+            team_badge = "win" if is_winner else "loss"
+            team_label = _s("team_win") if is_winner else _s("team_loss")
+        else:
+            is_winner = i < n // 2
+            team_badge = "blue" if is_winner else "red"
+            team_label = _s("team_blue") if is_winner else _s("team_red")
+        color = _player_color(i, n, is_winner)
+        name = p.get("name", "?")
+        civ = p.get("civilization", "")
+        civ_str = f" | {_civ_name(civ)}" if civ else ""
+        total = p.get("scores", {}).get("total", 0) or 0
+        radar = _generate_radar_svg(normalized_list[i], raw_list[i], size=radar_size, color=color)
+        raw_scores_html = "".join(
+            f'<div class="rs-item"><span class="rs-lbl">{_s(f"scores_{k}")}</span>'
+            f'<span class="rs-val">{_fmt(raw_list[i][k])}</span></div>'
+            for k in ["military", "economy", "technology", "society"]
+        )
+        tags_html = ""
+        try:
+            tags_list = generate_player_tags([p])
+            if tags_list:
+                tags_html = "".join(
+                    f'<span class="r-tag" style="background:{_tag_color(j)}">{tag}</span>'
+                    for j, (tag, _) in enumerate(tags_list[0]["tags"][:2])
+                )
+        except Exception:
+            pass
+        cards_html += f"""
+        <div class="r-card" style="width:{card_w}">
+          <div class="r-card-hdr" style="border-left:4px solid {color}">
+            <div class="r-name">{_fmt(name)}</div>
+            <div class="r-meta"><span class="r-badge r-badge-{team_badge}">{team_label}</span>{civ_str}</div>
+          </div>
+          <div class="r-card-body">
+            {radar}
+            <div class="r-scores-row">{raw_scores_html}</div>
+            <div class="r-total-line">{_s('total_score')}: <strong>{_fmt(total)}</strong></div>
+            {f'<div class="r-tags-row">{tags_html}</div>' if tags_html else ''}
+          </div>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.2.9/index.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{
+  font-family: "Noto Sans SC", "WenQuanYi Micro Hei", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 50%, #24243e 100%);
+  padding: 20px;
+  color: #e0e0e0;
+}}
+.r-hdr {{
+  text-align:center; padding:14px 20px; margin-bottom:16px;
+  background:rgba(255,255,255,0.06); border-radius:14px; backdrop-filter:blur(8px);
+}}
+.r-hdr h1 {{ font-size:18px; color:#fff; margin-bottom:3px; }}
+.r-hdr h1 i {{ margin-right:6px; }}
+.r-hdr p {{ font-size:12px; color:#999; }}
+.r-hdr p i {{ margin-right:4px; }}
+.r-cards {{
+  display:flex; flex-wrap:wrap; gap:12px; justify-content:center;
+}}
+.r-card {{
+  background:rgba(255,255,255,0.07); border-radius:12px; overflow:hidden;
+  backdrop-filter:blur(8px); min-width:240px; flex:1 1 auto;
+}}
+.r-card-hdr {{
+  padding:10px 14px; background:rgba(255,255,255,0.05);
+}}
+.r-name {{ font-size:15px; font-weight:700; color:#fff; }}
+.r-meta {{ font-size:11px; color:#999; margin-top:2px; }}
+.r-badge {{ display:inline-block; padding:1px 8px; border-radius:10px; font-size:10px; font-weight:600; color:#fff; margin-right:4px; }}
+.r-badge-win {{ background:#2d7d46; }}
+.r-badge-loss {{ background:#8b2d2d; }}
+.r-badge-blue {{ background:#2d4d8b; }}
+.r-badge-red {{ background:#8b3a2d; }}
+.r-card-body {{ padding:12px 14px 14px; text-align:center; }}
+.r-scores-row {{
+  display:flex; flex-wrap:wrap; gap:4px; justify-content:center; margin-top:8px;
+}}
+.rs-item {{
+  background:rgba(255,255,255,0.05); border-radius:6px; padding:4px 8px;
+  min-width:54px; text-align:center;
+}}
+.rs-lbl {{ display:block; font-size:9px; color:#888; }}
+.rs-val {{ display:block; font-size:13px; font-weight:700; color:#ddd; }}
+.r-total-line {{ font-size:13px; color:#aaa; margin-top:6px; }}
+.r-total-line strong {{ color:#ffd93d; font-size:15px; }}
+.r-tags-row {{ margin-top:8px; display:flex; flex-wrap:wrap; gap:4px; justify-content:center; }}
+.r-tag {{ display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; color:#fff; }}
+.r-tag i {{ margin-right:3px; }}
+.r-footer {{ text-align:center; margin-top:12px; font-size:10px; color:#444; }}
+</style>
+</head>
+<body>
+<div class="r-hdr">
+  <h1>{_fa("🎯")} {_fa(_fmt(title))}</h1>
+  <p>{_fa(_fmt(subtitle))}</p>
+</div>
+<div class="r-cards">{cards_html}</div>
+<div class="r-footer">{_s('footer')}</div>
+</body>
+</html>"""
