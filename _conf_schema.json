@@ -88,5 +88,20 @@
         "description": "Recent games for /aoe4 me -civ analysis / /aoe4 me -civ 分析的最近对局数",
         "default": 5,
         "hint": "分析最近N场的文明胜率分布，范围2~50"
+    },
+    "profile_output_mode": {
+        "type": "string",
+        "description": "Default output mode for /aoe4 me / /aoe4 me 默认输出模式",
+        "default": "text",
+        "hint": "text=文字输出, image=图片输出",
+        "options": ["text", "image"],
+        "enum": ["text", "image"],
+        "labels": ["文字", "图片"]
+    },
+    "profile_image_dir": {
+        "type": "string",
+        "description": "Profile image directory for random illustrations / 玩家资料插画图片目录",
+        "default": "./data/profile_images",
+        "hint": "支持相对路径(相对插件目录)和绝对路径，目录下放 .png/.jpg 等图片"
     }
 }

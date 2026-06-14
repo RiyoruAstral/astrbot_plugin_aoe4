@@ -3,11 +3,17 @@
 ## [1.5.0] - 2026-06-01
 
 ### Added
-- `/aoe4 radar [游戏ID] [-n N] [-force]`：评分雷达图图片输出，用 4 轴 SVG 雷达图直观展示每位玩家的军事/经济/科技/社会四项评分分布
-- 支持 1v1 至 4v4 全部多人场景，卡片自适应布局（2 列 / 3 列）
-- 雷达图含归一化百分比标注，一眼看出局内强弱项
-- 每个玩家卡片底部附带搞怪锐评标签
-- 新增中英文 `help_radar` 指令说明
+- `/aoe4 me` 支持图片输出（配置 `profile_output_mode` 为 `image`，或加 `-image` 标志）
+- `/aoe4 radar [游戏ID] [-n N] [-force]`：评分雷达图图片输出，4 轴 SVG 雷达图
+- 新增 `profile_output_mode` 配置项：`/aoe4 me` 默认输出格式（text / image）
+- 新增 `profile_image_dir` 配置项：玩家资料插画图片目录
+- `/aoe4 me` 图片模式包含：核心统计(8格)、评分趋势折线图、文明分布胜率条、搞怪名言、最近对局、最高记录
+- 新增 `generate_profile_html()` 函数到 score_renderer.py 渲染引擎
+- 新增中英文 `help_me` 和 `help_radar` 指令说明
+
+### Changed
+- `/aoe4 me` 现在支持 `-image` 标志强制使用图片输出（需 Playwright）
+- 图片模式下失败自动降级为文字输出
 
 ## [1.4.0] - 2026-05-29
 

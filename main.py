@@ -15,12 +15,13 @@ from data_client import AoE4DataClient, CIV_NAME_TO_CODE, CIV_CODE_TO_NAME
 import storage
 
 try:
-    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, generate_radar_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, ensure_browser, set_chromium_download_host
+    from score_renderer import generate_score_html, generate_analysis_html, generate_matchup_html, generate_radar_html, generate_profile_html, render_html_to_image, close_browser as close_renderer, set_translator as set_renderer_tr, set_profile_image_dir, ensure_browser, set_chromium_download_host
     HAS_RENDERER = True
 except ImportError:
     HAS_RENDERER = False
     def set_renderer_tr(tr): pass
     def set_chromium_download_host(url: str): pass
+    def set_profile_image_dir(path: str): pass
 
 from i18n import Translator
 
@@ -491,6 +492,11 @@ class AstrBotAOE4Plugin(Star):
             cache_ttl=self.config.get("data_cache_ttl", 86400),
         )
         self._myciv_games = max(2, min(50, self.config.get("myciv_analysis_games", 5)))
+        self._profile_output_mode = self.config.get("profile_output_mode", "text")
+        profile_img_dir = self.config.get("profile_image_dir", "./data/profile_images")
+        self._profile_image_dir = os.path.join(os.path.dirname(__file__), profile_img_dir) if not os.path.isabs(profile_img_dir) else profile_img_dir
+        if HAS_RENDERER:
+            set_profile_image_dir(self._profile_image_dir)
         logger.info(self.tr.t("plugin_loaded"))
         if HAS_RENDERER:
             asyncio.create_task(self._ensure_renderer_ready())
@@ -525,9 +531,11 @@ class AstrBotAOE4Plugin(Star):
                     generate_analysis_html=mod.generate_analysis_html,
                     generate_matchup_html=mod.generate_matchup_html,
                     generate_radar_html=mod.generate_radar_html,
+                    generate_profile_html=mod.generate_profile_html,
                     render_html_to_image=mod.render_html_to_image,
                     close_renderer=mod.close_browser,
                     set_renderer_tr=mod.set_translator,
+                    set_profile_image_dir=mod.set_profile_image_dir,
                     ensure_browser=mod.ensure_browser,
                     set_chromium_download_host=mod.set_chromium_download_host,
                 )
@@ -806,6 +814,33 @@ class AstrBotAOE4Plugin(Star):
                 "数据查询失败，请稍后重试"
             )
             return
+
+        # Check if image output is requested
+        use_image = text.endswith(" -image") or text.endswith(" --image")
+        if use_image:
+            text = text.rsplit(" -image", 1)[0].rsplit(" --image", 1)[0].strip()
+        if not use_image:
+            use_image = self._profile_output_mode == "image"
+        if use_image and HAS_RENDERER:
+            try:
+                games_data = await self.client.get_player_games(pid, 20)
+                games = games_data.get("games", []) if games_data else []
+                season = "13"
+                if games:
+                    last_detail = await self.client.get_game_by_id(games[0]["game_id"])
+                    if last_detail:
+                        season = str(last_detail.get("season", "13"))
+                html = await generate_profile_html(player, games, season, self._profile_image_dir)
+                img_path = os.path.join(tempfile.gettempdir(), "aoe4_profile_cache", f"me_{uuid.uuid4().hex}.jpg")
+                os.makedirs(os.path.dirname(img_path), exist_ok=True)
+                ok = await render_html_to_image(html, img_path, width=1200, scale=2)
+                if ok and os.path.exists(img_path):
+                    yield event.chain_result([Image(file=img_path)])
+                    return
+            except Exception as e:
+                logger.error(f"Profile image rendering failed: {e}")
+            # fallback to text on failure
+
         lines = await self._format_profile(player)
         if show_gid:
             gid_lines = await self._append_recent_gids(player["profile_id"])
