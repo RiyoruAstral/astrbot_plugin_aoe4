@@ -814,6 +814,12 @@ class AstrBotAOE4Plugin(Star):
                 "数据查询失败，请稍后重试"
             )
             return
+        # get_player may return a list wrapped result in some cases
+        if isinstance(player, list):
+            player = player[0] if player else None
+            if not player:
+                yield event.plain_result("查询到的玩家数据无效")
+                return
 
         # Check if image output is requested
         use_image = text.endswith(" -image") or text.endswith(" --image")
@@ -823,8 +829,7 @@ class AstrBotAOE4Plugin(Star):
             use_image = self._profile_output_mode == "image"
         if use_image and HAS_RENDERER:
             try:
-                games_data = await self.client.get_player_games(pid, 20)
-                games = games_data.get("games", []) if games_data else []
+                games = await self.client.get_player_games(pid, 20) or []
                 season = "13"
                 if games:
                     last_detail = await self.client.get_game_by_id(games[0]["game_id"])
