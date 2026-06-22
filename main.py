@@ -828,8 +828,10 @@ class AstrBotAOE4Plugin(Star):
                 season = "13"
                 if games:
                     last_detail = await self.client.get_game_by_id(games[0]["game_id"])
-                    if last_detail:
+                    if isinstance(last_detail, dict):
                         season = str(last_detail.get("season", "13"))
+                    elif isinstance(last_detail, list) and len(last_detail) > 0:
+                        season = str(last_detail[0].get("season", "13"))
                 html = await generate_profile_html(player, games, season, self._profile_image_dir)
                 img_path = os.path.join(tempfile.gettempdir(), "aoe4_profile_cache", f"me_{uuid.uuid4().hex}.jpg")
                 os.makedirs(os.path.dirname(img_path), exist_ok=True)

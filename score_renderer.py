@@ -381,7 +381,10 @@ async def generate_profile_html(player: dict, games: list[dict], season: str, im
                     if r.status!=200: continue
                     detail=await r.json()
             except: continue
-            for team in detail.get("teams",[]):
+            # API may return dict or list
+            detail_obj = detail if isinstance(detail, dict) else (detail[0] if isinstance(detail, list) and detail else None)
+            if not detail_obj: continue
+            for team in detail_obj.get("teams",[]):
                 for p in team:
                     if p.get("profile_id")==pid:
                         rd=p.get("rating_diff")
